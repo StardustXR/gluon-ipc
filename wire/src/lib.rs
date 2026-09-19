@@ -90,17 +90,26 @@ mod sealed {
 	impl<T: super::Interface> Sealed for Option<T> {}
 }
 /// A trait implemented for T: Interface and Option<T: Interface>.
-pub trait OptionalInterfaceRef: Sealed {
+pub trait OptionalInterfaceRef: Sealed + Sized {
 	type InnerInterface: Interface + RefExt;
 	const OPTIONAL: bool;
+	fn create_optional_from_ref(node_ref: Option<Ref>) -> Option<Self>;
 }
 impl<I: Interface + RefExt> OptionalInterfaceRef for I {
 	type InnerInterface = I;
 	const OPTIONAL: bool = false;
+
+	fn create_optional_from_ref(node_ref: Option<Ref>) -> Option<Self> {
+		node_ref.map(I::from_ref)
+	}
 }
 impl<I: Interface + RefExt> OptionalInterfaceRef for Option<I> {
 	type InnerInterface = I;
 	const OPTIONAL: bool = true;
+
+	fn create_optional_from_ref(node_ref: Option<Ref>) -> Option<Self> {
+		Some(node_ref.map(I::from_ref))
+	}
 }
 
 /// A handler, or a share of one already in an `Arc`.
