@@ -62,6 +62,8 @@ use std::sync::Arc;
 use strong_ipc::TrySendError;
 use thiserror::Error;
 
+use crate::sealed::Sealed;
+
 pub trait Convertable: 'static + Sized {
 	fn write(&self, data: &mut DataBuilder) -> Result<(), WriteError>;
 	fn write_owned(self, data: &mut DataBuilder) -> Result<(), WriteError>;
@@ -80,6 +82,25 @@ impl ToRef for Ref {
 
 pub trait Interface: ToRef {
 	const ID: &'static str;
+}
+
+mod sealed {
+	pub trait Sealed {}
+	impl<T: super::Interface> Sealed for T {}
+	impl<T: super::Interface> Sealed for Option<T> {}
+}
+/// A trait implemented for T: Interface and Option<T: Interface>.
+pub trait OptionalInterfaceRef: Sealed {
+	type InnerInterface: Interface + RefExt;
+	const OPTIONAL: bool;
+}
+impl<I: Interface + RefExt> OptionalInterfaceRef for I {
+	type InnerInterface = I;
+	const OPTIONAL: bool = false;
+}
+impl<I: Interface + RefExt> OptionalInterfaceRef for Option<I> {
+	type InnerInterface = I;
+	const OPTIONAL: bool = true;
 }
 
 /// A handler, or a share of one already in an `Arc`.
