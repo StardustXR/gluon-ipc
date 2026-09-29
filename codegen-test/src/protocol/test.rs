@@ -282,8 +282,9 @@ impl Test {
         let mut gluon_builder = gluon_ipc::DataBuilder::new();
         let (mut gluon_recv, gluon_ret) = gluon_ipc::ReturnReceiver::new()?;
         gluon_builder.write_ref(&gluon_ret)?;
+        drop(gluon_ret);
         gluon_ipc::transact(&self.obj, 9u32, gluon_builder)?;
-        let mut reader = gluon_recv.recv().await.unwrap();
+        let mut reader = gluon_recv.recv().await?;
         tracing::trace!(interface = "Test", method = "ping", "←");
         Ok(())
     }
@@ -296,9 +297,10 @@ impl Test {
         let mut gluon_builder = gluon_ipc::DataBuilder::new();
         let (mut gluon_recv, gluon_ret) = gluon_ipc::ReturnReceiver::new()?;
         gluon_builder.write_ref(&gluon_ret)?;
+        drop(gluon_ret);
         input.write(&mut gluon_builder)?;
         gluon_ipc::transact(&self.obj, 10u32, gluon_builder)?;
-        let mut reader = gluon_recv.recv().await.unwrap();
+        let mut reader = gluon_recv.recv().await?;
         let __ret_output = {
             let __w: proxied::TestEnum = gluon_ipc::Convertable::read(&mut reader)?;
             __w.into()
@@ -318,9 +320,10 @@ impl Test {
         let mut gluon_builder = gluon_ipc::DataBuilder::new();
         let (mut gluon_recv, gluon_ret) = gluon_ipc::ReturnReceiver::new()?;
         gluon_builder.write_ref(&gluon_ret)?;
+        drop(gluon_ret);
         input.write(&mut gluon_builder)?;
         gluon_ipc::transact(&self.obj, 11u32, gluon_builder)?;
-        let mut reader = gluon_recv.recv().await.unwrap();
+        let mut reader = gluon_recv.recv().await?;
         let __ret_output = gluon_ipc::Convertable::read(&mut reader)?;
         tracing::trace!(interface = "Test", method = "echo_ref", ? __ret_output, "←");
         Ok(__ret_output)
@@ -334,9 +337,10 @@ impl Test {
         let mut gluon_builder = gluon_ipc::DataBuilder::new();
         let (mut gluon_recv, gluon_ret) = gluon_ipc::ReturnReceiver::new()?;
         gluon_builder.write_ref(&gluon_ret)?;
+        drop(gluon_ret);
         input.write(&mut gluon_builder)?;
         gluon_ipc::transact(&self.obj, 12u32, gluon_builder)?;
-        let mut reader = gluon_recv.recv().await.unwrap();
+        let mut reader = gluon_recv.recv().await?;
         let __ret_output = gluon_ipc::Convertable::read(&mut reader)?;
         tracing::trace!(
             interface = "Test", method = "echo_untyped_ref", ? __ret_output, "←"
@@ -348,8 +352,9 @@ impl Test {
         let mut gluon_builder = gluon_ipc::DataBuilder::new();
         let (mut gluon_recv, gluon_ret) = gluon_ipc::ReturnReceiver::new()?;
         gluon_builder.write_ref(&gluon_ret)?;
+        drop(gluon_ret);
         gluon_ipc::transact(&self.obj, 13u32, gluon_builder)?;
-        let mut reader = gluon_recv.recv().await.unwrap();
+        let mut reader = gluon_recv.recv().await?;
         let __ret_position = {
             let __w: super::types::proxied::Vec3 = gluon_ipc::Convertable::read(
                 &mut reader,

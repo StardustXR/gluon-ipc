@@ -720,10 +720,11 @@ pub fn gen_interface(
                             let mut gluon_builder = gluon_ipc::DataBuilder::new();
                             let (mut gluon_recv, gluon_ret) = gluon_ipc::ReturnReceiver::new()?;
                             gluon_builder.write_ref(&gluon_ret)?;
+                            drop(gluon_ret);
                             #(#params_write)*
                             gluon_ipc::transact(&self.obj, #i, gluon_builder)?;
                             // safe since we're also holding the channel sender
-                            let mut reader = gluon_recv.recv().await.unwrap();
+                            let mut reader = gluon_recv.recv().await?;
                             #(#ret_let_stmts)*
                             #proxy_return_trace
                             Ok(#return_result)
