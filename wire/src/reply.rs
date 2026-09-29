@@ -45,6 +45,7 @@ impl ReturnReceiver {
 	}
 	pub async fn recv(&mut self) -> Result<DataReader, SendError> {
 		tokio::select! {
+            biased;
 			// this unwrap should be fine since we
 			v = self.1.recv() => { Ok(v.unwrap()) }
 			_ = self.0.death_notification() => { Err(SendError::Closed) }
