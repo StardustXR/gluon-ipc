@@ -4,7 +4,7 @@ resolver = "3"
 members = ["codegen-test", "codegen-rust", "parser", "wire", "wire-derive"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Nova King <technobaboo@proton.me>"]
 license = "MIT"
@@ -13,17 +13,17 @@ license = "MIT"
 strong-ipc = "0.1.0"
 
 [workspace.dependencies.gluon-ipc-codegen]
-version = "0.1.0"
+version = "0.1.1"
 path = "./codegen-rust"
 
 [workspace.dependencies.gluon-ipc-parser]
-version = "0.1.0"
+version = "0.1.1"
 path = "./parser"
 
 [workspace.dependencies.gluon-ipc]
-version = "0.1.0"
+version = "0.1.1"
 path = "./wire"
 
 [workspace.dependencies.gluon-ipc-derive]
-version = "0.1.0"
+version = "0.1.1"
 path = "./wire-derive"

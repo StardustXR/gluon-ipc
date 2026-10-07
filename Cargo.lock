@@ -85,7 +85,7 @@ dependencies = [
 
 [[package]]
 name = "codegen-test"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "convert_case",
  "gluon-ipc",
@@ -218,7 +218,7 @@ dependencies = [
 
 [[package]]
 name = "gluon-ipc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bitflags",
  "gluon-ipc-derive",
@@ -230,7 +230,7 @@ dependencies = [
 
 [[package]]
 name = "gluon-ipc-codegen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "convert_case",
  "gluon-ipc",
@@ -243,7 +243,7 @@ dependencies = [
 
 [[package]]
 name = "gluon-ipc-derive"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "quote",
  "syn 2.0.117",
@@ -251,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "gluon-ipc-parser"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ansi_term",
  "chumsky",
