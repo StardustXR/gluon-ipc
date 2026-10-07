@@ -394,6 +394,10 @@ pub fn gen_interface(
 		gen_ctx.curr_protocol.name,
 		interface_name.to_case(Case::Pascal)
 	);
+	let interface_doc_comment = {
+		let v = &def.doc;
+		quote! {#[doc = #v]}
+	};
 	let handler = {
 		// Dispatch arms: read wire types from the binder, convert to proxy types for the handler
 		// call, then convert return values back to wire types for the response.
@@ -601,6 +605,7 @@ pub fn gen_interface(
             }
         });
 		quote! {
+			#interface_doc_comment
 			pub trait #handler_name: gluon_ipc::Handler + Send + Sync + 'static {
 				#(#methods)*
 
@@ -745,6 +750,7 @@ pub fn gen_interface(
             }
         });
 		quote! {
+			#interface_doc_comment
 			#[derive(Debug, Clone)]
 			pub struct #name {
 				obj: gluon_ipc::Ref,

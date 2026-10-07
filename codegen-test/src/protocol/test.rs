@@ -225,6 +225,7 @@ impl gluon_ipc::Convertable for MaybeColor {
         Ok(())
     }
 }
+///Test interface
 #[derive(Debug, Clone)]
 pub struct Test {
     obj: gluon_ipc::Ref,
@@ -398,6 +399,7 @@ impl PartialEq for Test {
     }
 }
 impl Eq for Test {}
+///Test interface
 pub trait TestHandler: gluon_ipc::Handler + Send + Sync + 'static {
     fn quit(&self, _ctx: gluon_ipc::Context) -> impl Future<Output = ()> + Send + Sync;
     fn ping(&self, _ctx: gluon_ipc::Context) -> impl Future<Output = ()> + Send + Sync;
