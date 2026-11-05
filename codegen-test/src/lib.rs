@@ -487,7 +487,8 @@ mod tests {
 		let mut b = gluon_ipc::DataBuilder::new();
 		v.write(&mut b).unwrap();
 		let m = b.finish(0);
-		let (_, mut r) = gluon_ipc::DataReader::from_wire(m.data(), gluon_ipc::FdVec::new()).unwrap();
+		let (_, mut r) =
+			gluon_ipc::DataReader::from_wire(m.data(), gluon_ipc::FdVec::new()).unwrap();
 		assert_eq!(protocol::test::TypesTest::read(&mut r).unwrap(), v);
 	}
 }

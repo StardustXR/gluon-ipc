@@ -1,4 +1,7 @@
-use std::{os::fd::{BorrowedFd, OwnedFd}, string::FromUtf8Error};
+use std::{
+	os::fd::{BorrowedFd, OwnedFd},
+	string::FromUtf8Error,
+};
 
 use strong_ipc::{FdVec, Message, Ref};
 use thiserror::Error;

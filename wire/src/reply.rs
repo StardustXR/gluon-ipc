@@ -3,7 +3,6 @@ use tokio::sync::mpsc;
 
 use crate::{DataBuilder, DataReader, SendError, WriteError, transact};
 
-
 /// The reply-carrying transaction code. Generated method codes start at 8, so this can
 /// never collide with one.
 pub const REPLY_CODE: u32 = 0;
@@ -45,7 +44,7 @@ impl ReturnReceiver {
 	}
 	pub async fn recv(&mut self) -> Result<DataReader, SendError> {
 		tokio::select! {
-            biased;
+			biased;
 			// this unwrap should be fine since we
 			v = self.1.recv() => { Ok(v.unwrap()) }
 			_ = self.0.death_notification() => { Err(SendError::Closed) }
