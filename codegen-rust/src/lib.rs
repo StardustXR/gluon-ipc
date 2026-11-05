@@ -1253,7 +1253,7 @@ pub fn gen_type(def: &Type, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 		Type::I32 => quote! {i32},
 		Type::I64 => quote! {i64},
 		Type::F32 => quote! {f32},
-		Type::F64 => quote! {i64},
+		Type::F64 => quote! {f64},
 		Type::String => quote! {String},
 		Type::Fd => quote! {std::os::fd::OwnedFd},
 		Type::Ref(ref_type) => match ref_type {
