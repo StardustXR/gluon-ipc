@@ -59,3 +59,19 @@ struct Palette {
 struct MaybeColor {
 	color: Option<Color>,
 }
+
+/// Every primitive once, so each one's codegen gets compiled and round tripped
+struct TypesTest {
+	flag: bool,
+	byte: u8,
+	ushort: u16,
+	uint: u32,
+	ulong: u64,
+	sbyte: i8,
+	short: i16,
+	int: i32,
+	long: i64,
+	float: f32,
+	double: f64,
+	string: String,
+}

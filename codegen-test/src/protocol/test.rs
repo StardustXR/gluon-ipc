@@ -26,6 +26,11 @@ pub const EXTERNAL_PROTOCOL: gluon_ipc::ExternalProtocol = gluon_ipc::ExternalPr
             proxy: None,
         },
         gluon_ipc::ExternalGluonType {
+            name: "TypesTest",
+            supported_derives: gluon_ipc::Derives::from_bits_truncate(170u32),
+            proxy: None,
+        },
+        gluon_ipc::ExternalGluonType {
             name: "TestEnum",
             supported_derives: gluon_ipc::Derives::from_bits_truncate(0u32),
             proxy: Some("proxies::MyTestEnum"),
@@ -223,6 +228,90 @@ impl gluon_ipc::Convertable for MaybeColor {
             let __w: Option<proxied::Color> = self.color.map(|__v| __v.into());
             __w.write_owned(gluon_data)?;
         }
+        Ok(())
+    }
+}
+///Every primitive once, so each one's codegen gets compiled and round tripped
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
+pub struct TypesTest {
+    pub flag: bool,
+    pub byte: u8,
+    pub ushort: u16,
+    pub uint: u32,
+    pub ulong: u64,
+    pub sbyte: i8,
+    pub short: i16,
+    pub int: i32,
+    pub long: i64,
+    pub float: f32,
+    pub double: f64,
+    pub string: String,
+}
+impl gluon_ipc::Convertable for TypesTest {
+    fn write(
+        &self,
+        gluon_data: &mut gluon_ipc::DataBuilder,
+    ) -> Result<(), gluon_ipc::WriteError> {
+        self.flag.write(gluon_data)?;
+        self.byte.write(gluon_data)?;
+        self.ushort.write(gluon_data)?;
+        self.uint.write(gluon_data)?;
+        self.ulong.write(gluon_data)?;
+        self.sbyte.write(gluon_data)?;
+        self.short.write(gluon_data)?;
+        self.int.write(gluon_data)?;
+        self.long.write(gluon_data)?;
+        self.float.write(gluon_data)?;
+        self.double.write(gluon_data)?;
+        self.string.write(gluon_data)?;
+        Ok(())
+    }
+    fn read(
+        gluon_data: &mut gluon_ipc::DataReader,
+    ) -> Result<Self, gluon_ipc::ReadError> {
+        let flag = gluon_ipc::Convertable::read(gluon_data)?;
+        let byte = gluon_ipc::Convertable::read(gluon_data)?;
+        let ushort = gluon_ipc::Convertable::read(gluon_data)?;
+        let uint = gluon_ipc::Convertable::read(gluon_data)?;
+        let ulong = gluon_ipc::Convertable::read(gluon_data)?;
+        let sbyte = gluon_ipc::Convertable::read(gluon_data)?;
+        let short = gluon_ipc::Convertable::read(gluon_data)?;
+        let int = gluon_ipc::Convertable::read(gluon_data)?;
+        let long = gluon_ipc::Convertable::read(gluon_data)?;
+        let float = gluon_ipc::Convertable::read(gluon_data)?;
+        let double = gluon_ipc::Convertable::read(gluon_data)?;
+        let string = gluon_ipc::Convertable::read(gluon_data)?;
+        Ok(TypesTest {
+            flag,
+            byte,
+            ushort,
+            uint,
+            ulong,
+            sbyte,
+            short,
+            int,
+            long,
+            float,
+            double,
+            string,
+        })
+    }
+    fn write_owned(
+        self,
+        gluon_data: &mut gluon_ipc::DataBuilder,
+    ) -> Result<(), gluon_ipc::WriteError> {
+        self.flag.write_owned(gluon_data)?;
+        self.byte.write_owned(gluon_data)?;
+        self.ushort.write_owned(gluon_data)?;
+        self.uint.write_owned(gluon_data)?;
+        self.ulong.write_owned(gluon_data)?;
+        self.sbyte.write_owned(gluon_data)?;
+        self.short.write_owned(gluon_data)?;
+        self.int.write_owned(gluon_data)?;
+        self.long.write_owned(gluon_data)?;
+        self.float.write_owned(gluon_data)?;
+        self.double.write_owned(gluon_data)?;
+        self.string.write_owned(gluon_data)?;
         Ok(())
     }
 }

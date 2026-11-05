@@ -466,4 +466,28 @@ mod tests {
 		let _ = a; // still valid
 		assert_eq!(b.primary, MyColor::Green);
 	}
+
+	#[test]
+	fn primitives_round_trip() {
+		use gluon_ipc::Convertable;
+		let v = protocol::test::TypesTest {
+			flag: true,
+			byte: u8::MAX,
+			ushort: u16::MAX,
+			uint: u32::MAX,
+			ulong: u64::MAX,
+			sbyte: i8::MIN,
+			short: i16::MIN,
+			int: i32::MIN,
+			long: i64::MIN,
+			float: 0.1,
+			double: 0.1,
+			string: "hello".into(),
+		};
+		let mut b = gluon_ipc::DataBuilder::new();
+		v.write(&mut b).unwrap();
+		let m = b.finish(0);
+		let (_, mut r) = gluon_ipc::DataReader::from_wire(m.data(), gluon_ipc::FdVec::new()).unwrap();
+		assert_eq!(protocol::test::TypesTest::read(&mut r).unwrap(), v);
+	}
 }
