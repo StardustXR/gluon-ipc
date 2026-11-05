@@ -108,6 +108,7 @@ pub fn gen_module(
 		quote! {}
 	};
 	quote! {
+		#![cfg_attr(rustfmt, rustfmt::skip)]
 		#![allow(unused, clippy::all, private_bounds, private_interfaces)]
 		use gluon_ipc::Convertable as _;
 		#tracing_instrument
