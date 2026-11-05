@@ -68,7 +68,7 @@ impl<K: Hash + Eq + Convertable, V: Convertable> Convertable for HashMap<K, V> {
 
 	fn read(data: &mut crate::DataReader) -> Result<Self, ReadError> {
 		let len = data.read_u32()?;
-		let mut out = Self::with_capacity(len as usize);
+		let mut out = Self::with_capacity(data.capacity_for(len));
 		for _ in 0..len {
 			out.insert(K::read(data)?, V::read(data)?);
 		}
@@ -94,7 +94,7 @@ impl<T: Hash + Eq + Convertable> Convertable for HashSet<T> {
 
 	fn read(data: &mut crate::DataReader) -> Result<Self, ReadError> {
 		let len = data.read_u32()?;
-		let mut out = Self::with_capacity(len as usize);
+		let mut out = Self::with_capacity(data.capacity_for(len));
 		for _ in 0..len {
 			out.insert(T::read(data)?);
 		}
@@ -121,7 +121,7 @@ impl<T: Convertable> Convertable for Vec<T> {
 
 	fn read(data: &mut crate::DataReader) -> Result<Self, ReadError> {
 		let len = data.read_u32()?;
-		let mut out = Vec::with_capacity(len as usize);
+		let mut out = Vec::with_capacity(data.capacity_for(len));
 		for _ in 0..len {
 			out.push(T::read(data)?);
 		}

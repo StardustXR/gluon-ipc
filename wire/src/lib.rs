@@ -296,4 +296,29 @@ mod tests {
 			Err(ReadError::MissingDescriptor)
 		));
 	}
+
+	fn forged_len() -> DataReader {
+		let mut builder = DataBuilder::new();
+		builder.write_u32(u32::MAX).unwrap();
+		builder.write_u64(7).unwrap();
+		let message = builder.finish(0);
+		let (_, reader) = DataReader::from_wire(message.data(), FdVec::new()).unwrap();
+		reader
+	}
+
+	#[test]
+	fn forged_lengths_dont_preallocate() {
+		assert!(matches!(
+			Vec::<u64>::read(&mut forged_len()),
+			Err(ReadError::NotEnoughBytes)
+		));
+		assert!(matches!(
+			std::collections::HashSet::<u64>::read(&mut forged_len()),
+			Err(ReadError::NotEnoughBytes)
+		));
+		assert!(matches!(
+			std::collections::HashMap::<u64, u64>::read(&mut forged_len()),
+			Err(ReadError::NotEnoughBytes)
+		));
+	}
 }

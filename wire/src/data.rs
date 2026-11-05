@@ -75,6 +75,11 @@ impl DataReader {
 		))
 	}
 
+	/// a length prefix is untrusted, so preallocate no more elements than there are bytes left
+	pub(crate) fn capacity_for(&self, len: u32) -> usize {
+		(len as usize).min(self.data.len() - self.cursor)
+	}
+
 	fn read_bytes(&mut self, len: usize) -> Result<&[u8], ReadError> {
 		let end = self
 			.cursor
