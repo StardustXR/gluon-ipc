@@ -1,4 +1,4 @@
-use crate::{Convertable, ReadError, Ref, WriteError};
+use crate::{Bufferable, Convertable, ReadError, Ref, WriteError};
 use std::{
 	collections::{HashMap, HashSet},
 	hash::Hash,
@@ -368,3 +368,22 @@ impl Convertable for i8 {
 		data.write_i8(self)
 	}
 }
+
+impl<T: Bufferable> Bufferable for Box<T> {}
+impl<T: Bufferable, E: Bufferable> Bufferable for Result<T, E> {}
+impl<K: Hash + Eq + Bufferable, V: Bufferable> Bufferable for HashMap<K, V> {}
+impl<T: Hash + Eq + Bufferable> Bufferable for HashSet<T> {}
+impl<T: Bufferable> Bufferable for Vec<T> {}
+impl<T: Bufferable> Bufferable for Option<T> {}
+impl Bufferable for String {}
+impl Bufferable for bool {}
+impl Bufferable for u64 {}
+impl Bufferable for i64 {}
+impl Bufferable for f64 {}
+impl Bufferable for u32 {}
+impl Bufferable for i32 {}
+impl Bufferable for f32 {}
+impl Bufferable for u16 {}
+impl Bufferable for i16 {}
+impl Bufferable for u8 {}
+impl Bufferable for i8 {}

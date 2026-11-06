@@ -78,6 +78,10 @@ pub trait Convertable: 'static + Sized {
 	}
 }
 
+/// plain data that can live in a buf, so nothing that carries an fd or ref since those
+/// only exist in the message they were sent with
+pub trait Bufferable: Convertable {}
+
 /// Anything that can produce the ref that reaches it.
 pub trait ToRef: Send + Sync + 'static {
 	fn to_ref(&self) -> Ref;
