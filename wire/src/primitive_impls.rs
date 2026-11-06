@@ -17,6 +17,10 @@ impl<T: Convertable> Convertable for Box<T> {
 	fn read(data: &mut crate::DataReader) -> Result<Self, ReadError> {
 		T::read(data).map(Box::new)
 	}
+
+	fn read_into(&mut self, data: &mut crate::DataReader) -> Result<(), ReadError> {
+		(**self).read_into(data)
+	}
 }
 
 impl<T: Convertable, E: Convertable> Convertable for Result<T, E> {
@@ -46,6 +50,16 @@ impl<T: Convertable, E: Convertable> Convertable for Result<T, E> {
 		};
 		Ok(v)
 	}
+
+	fn read_into(&mut self, data: &mut crate::DataReader) -> Result<(), ReadError> {
+		match (data.read_bool()?, self) {
+			(true, Ok(v)) => return v.read_into(data),
+			(false, Err(e)) => return e.read_into(data),
+			(true, s) => *s = Ok(T::read(data)?),
+			(false, s) => *s = Err(E::read(data)?),
+		}
+		Ok(())
+	}
 }
 impl<K: Hash + Eq + Convertable, V: Convertable> Convertable for HashMap<K, V> {
 	fn write(&self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
@@ -74,6 +88,15 @@ impl<K: Hash + Eq + Convertable, V: Convertable> Convertable for HashMap<K, V> {
 		}
 		Ok(out)
 	}
+
+	fn read_into(&mut self, data: &mut crate::DataReader) -> Result<(), ReadError> {
+		let len = data.read_u32()?;
+		self.clear();
+		for _ in 0..len {
+			self.insert(K::read(data)?, V::read(data)?);
+		}
+		Ok(())
+	}
 }
 impl<T: Hash + Eq + Convertable> Convertable for HashSet<T> {
 	fn write(&self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
@@ -99,6 +122,15 @@ impl<T: Hash + Eq + Convertable> Convertable for HashSet<T> {
 			out.insert(T::read(data)?);
 		}
 		Ok(out)
+	}
+
+	fn read_into(&mut self, data: &mut crate::DataReader) -> Result<(), ReadError> {
+		let len = data.read_u32()?;
+		self.clear();
+		for _ in 0..len {
+			self.insert(T::read(data)?);
+		}
+		Ok(())
 	}
 }
 
@@ -127,6 +159,18 @@ impl<T: Convertable> Convertable for Vec<T> {
 		}
 		Ok(out)
 	}
+
+	fn read_into(&mut self, data: &mut crate::DataReader) -> Result<(), ReadError> {
+		let len = data.read_u32()? as usize;
+		self.truncate(len);
+		for v in self.iter_mut() {
+			v.read_into(data)?;
+		}
+		for _ in self.len()..len {
+			self.push(T::read(data)?);
+		}
+		Ok(())
+	}
 }
 impl<T: Convertable> Convertable for Option<T> {
 	fn write(&self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
@@ -147,6 +191,15 @@ impl<T: Convertable> Convertable for Option<T> {
 
 	fn read(data: &mut crate::DataReader) -> Result<Self, ReadError> {
 		data.read_bool()?.then(|| T::read(data)).transpose()
+	}
+
+	fn read_into(&mut self, data: &mut crate::DataReader) -> Result<(), ReadError> {
+		match (data.read_bool()?, self) {
+			(true, Some(v)) => return v.read_into(data),
+			(true, s) => *s = Some(T::read(data)?),
+			(false, s) => *s = None,
+		}
+		Ok(())
 	}
 }
 
@@ -183,6 +236,10 @@ impl Convertable for String {
 
 	fn read(data: &mut crate::DataReader) -> Result<Self, ReadError> {
 		data.read_string()
+	}
+
+	fn read_into(&mut self, data: &mut crate::DataReader) -> Result<(), ReadError> {
+		data.read_string_into(self)
 	}
 
 	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {

@@ -234,6 +234,16 @@ impl DataReader {
 		let data = self.read_bytes(len as usize)?;
 		Ok(String::from_utf8(data.to_vec())?)
 	}
+	/// [`DataReader::read_string`] into `out`'s existing allocation
+	pub fn read_string_into(&mut self, out: &mut String) -> Result<(), ReadError> {
+		let len = self.read_u32()?;
+		let data = self.read_bytes(len as usize)?;
+		let mut bytes = std::mem::take(out).into_bytes();
+		bytes.clear();
+		bytes.extend_from_slice(data);
+		*out = String::from_utf8(bytes)?;
+		Ok(())
+	}
 	pub fn read_f64(&mut self) -> Result<f64, ReadError> {
 		let bytes = self.read_bytes(size_of::<f64>())?;
 		Ok(f64::from_le_bytes(

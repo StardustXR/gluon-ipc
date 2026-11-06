@@ -66,6 +66,16 @@ pub trait Convertable: 'static + Sized {
 	fn write(&self, data: &mut DataBuilder) -> Result<(), WriteError>;
 	fn write_owned(self, data: &mut DataBuilder) -> Result<(), WriteError>;
 	fn read(data: &mut DataReader) -> Result<Self, ReadError>;
+
+	/// [`Convertable::read`] over a value you already have, reusing whatever it allocated, so
+	/// decoding the same kind of thing over and over (like a buf that keeps getting updated)
+	/// settles into not allocating at all
+	///
+	/// on error `self` is left partly overwritten, still a valid value but a mix of old and new
+	fn read_into(&mut self, data: &mut DataReader) -> Result<(), ReadError> {
+		*self = Self::read(data)?;
+		Ok(())
+	}
 }
 
 /// Anything that can produce the ref that reaches it.
@@ -346,6 +356,70 @@ mod tests {
 			builder.into_bytes(),
 			Err(WriteError::DescriptorsInBytes)
 		));
+	}
+
+	fn read_over<T: Convertable>(target: &mut T, v: &T) {
+		let mut builder = DataBuilder::bare();
+		v.write(&mut builder).unwrap();
+		let mut reader = DataReader::from_bytes(builder.into_bytes().unwrap());
+		target.read_into(&mut reader).unwrap();
+	}
+
+	#[test]
+	fn read_into_reuses_nested_allocations() {
+		let mut target = vec![Vec::<u32>::with_capacity(64), Vec::with_capacity(64)];
+		let outer = target.as_ptr();
+		let inner = target[0].as_ptr();
+
+		read_over(&mut target, &vec![vec![1, 2, 3], vec![4]]);
+		assert_eq!(target, vec![vec![1, 2, 3], vec![4]]);
+		assert_eq!(target.as_ptr(), outer);
+		assert_eq!(target[0].as_ptr(), inner);
+	}
+
+	#[test]
+	fn read_into_grows_and_shrinks() {
+		let mut target = vec![1u32, 2];
+		read_over(&mut target, &vec![5, 6, 7, 8]);
+		assert_eq!(target, vec![5, 6, 7, 8]);
+		read_over(&mut target, &vec![9]);
+		assert_eq!(target, vec![9]);
+	}
+
+	#[test]
+	fn read_into_reuses_strings() {
+		let mut target = String::with_capacity(64);
+		let p = target.as_ptr();
+		read_over(&mut target, &"hello".to_string());
+		assert_eq!(target, "hello");
+		assert_eq!(target.as_ptr(), p);
+	}
+
+	#[test]
+	fn read_into_switches_variants() {
+		let mut target = Some(vec![1u32]);
+		read_over(&mut target, &None);
+		assert_eq!(target, None);
+		read_over(&mut target, &Some(vec![2]));
+		assert_eq!(target, Some(vec![2]));
+
+		let mut target: Result<u32, String> = Ok(1);
+		read_over(&mut target, &Err("no".into()));
+		assert_eq!(target, Err("no".into()));
+		read_over(&mut target, &Err("again".into()));
+		assert_eq!(target, Err("again".into()));
+	}
+
+	#[test]
+	fn read_into_replaces_sets_and_maps() {
+		use std::collections::{HashMap, HashSet};
+		let mut set = HashSet::from([1u32, 2, 3]);
+		read_over(&mut set, &HashSet::from([4]));
+		assert_eq!(set, HashSet::from([4]));
+
+		let mut map = HashMap::from([(1u32, "a".to_string())]);
+		read_over(&mut map, &HashMap::from([(2, "b".to_string())]));
+		assert_eq!(map, HashMap::from([(2, "b".to_string())]));
 	}
 
 	#[test]
