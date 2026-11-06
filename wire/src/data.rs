@@ -59,8 +59,55 @@ impl DataBuilder {
 		}
 		message
 	}
+
+	/// encodes a value on its own instead of as a message, for bytes that live somewhere other
+	/// than a socket like a buf's file or a log on disk
+	///
+	/// there's no code header, so finish it with [`DataBuilder::into_bytes`], not
+	/// [`DataBuilder::finish`], which would write the code over the first 4 bytes
+	pub fn bare() -> Self {
+		Self::bare_in(Vec::new())
+	}
+	/// [`DataBuilder::bare`] writing into an old buffer, so encoding the same kind of value
+	/// over and over doesn't allocate every time
+	///
+	/// whatever was in `data` is dropped, only its capacity is kept
+	pub fn bare_in(mut data: Vec<u8>) -> Self {
+		data.clear();
+		Self {
+			data,
+			fds: Vec::new(),
+		}
+	}
+	/// the encoded value, in the same format a message payload uses
+	///
+	/// descriptors only travel alongside a message, never inside its bytes, so a value that
+	/// wrote any can't be represented here and would silently lose them otherwise
+	pub fn into_bytes(self) -> Result<Vec<u8>, WriteError> {
+		match self.fds.is_empty() {
+			true => Ok(self.data),
+			false => Err(WriteError::DescriptorsInBytes),
+		}
+	}
 }
 impl DataReader {
+	/// reads back a value encoded by [`DataBuilder::bare`], from wherever those bytes were kept
+	///
+	/// there's no code header to skip and no descriptors, so reading an fd or ref from this
+	/// is [`ReadError::MissingDescriptor`]
+	pub fn from_bytes(data: Vec<u8>) -> Self {
+		Self {
+			data,
+			cursor: 0,
+			fds: Vec::new().into_iter(),
+		}
+	}
+	/// hands the buffer back once you're done reading, so the next read or a
+	/// [`DataBuilder::bare_in`] can reuse its allocation
+	pub fn into_bytes(self) -> Vec<u8> {
+		self.data
+	}
+
 	/// Splits a received message into its transaction code and a reader over the rest.
 	pub fn from_wire(data: &[u8], fds: FdVec) -> Result<(u32, Self), ReadError> {
 		let code = data
@@ -177,6 +224,8 @@ pub enum WriteError {
 	ListToLong,
 	#[error("Could not duplicate borrowed fd: {0}")]
 	DupFd(#[source] std::io::Error),
+	#[error("Descriptors can't be encoded into bare bytes")]
+	DescriptorsInBytes,
 }
 
 impl DataReader {

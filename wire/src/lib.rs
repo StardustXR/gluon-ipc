@@ -307,6 +307,48 @@ mod tests {
 	}
 
 	#[test]
+	fn bare_bytes_round_trip() {
+		let mut builder = DataBuilder::bare();
+		"hello".to_string().write(&mut builder).unwrap();
+		7u32.write(&mut builder).unwrap();
+		let bytes = builder.into_bytes().unwrap();
+		assert_eq!(bytes.len(), 4 + 5 + 4);
+
+		let mut reader = DataReader::from_bytes(bytes);
+		assert_eq!(String::read(&mut reader).unwrap(), "hello");
+		assert_eq!(u32::read(&mut reader).unwrap(), 7);
+		assert!(matches!(
+			u8::read(&mut reader),
+			Err(ReadError::NotEnoughBytes)
+		));
+	}
+
+	#[test]
+	fn bare_buffers_are_reused() {
+		let mut reader = DataReader::from_bytes(Vec::with_capacity(1024));
+		let _ = u8::read(&mut reader);
+		let bytes = reader.into_bytes();
+		let cap = bytes.capacity();
+
+		let mut builder = DataBuilder::bare_in(bytes);
+		7u64.write(&mut builder).unwrap();
+		let bytes = builder.into_bytes().unwrap();
+		assert_eq!(bytes, 7u64.to_le_bytes());
+		assert_eq!(bytes.capacity(), cap);
+	}
+
+	#[test]
+	fn descriptors_cant_be_bare() {
+		let (fd, _) = std::io::pipe().unwrap();
+		let mut builder = DataBuilder::bare();
+		builder.write_owned_fd(fd.into()).unwrap();
+		assert!(matches!(
+			builder.into_bytes(),
+			Err(WriteError::DescriptorsInBytes)
+		));
+	}
+
+	#[test]
 	fn forged_lengths_dont_preallocate() {
 		assert!(matches!(
 			Vec::<u64>::read(&mut forged_len()),
