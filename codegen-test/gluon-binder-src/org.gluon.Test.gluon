@@ -13,6 +13,8 @@ interface Test {
 	echo_untyped_ref(input: Ref) -> (output: Ref)
 
 	get_position() -> (position: types::Vec3)
+
+	count_shapes(shapes: Buf<Vec<Shape>>) -> (count: u32)
 }
 
 /// test struct
@@ -58,4 +60,46 @@ struct Palette {
 /// Struct with an optional Color — exercises proxy inside Option
 struct MaybeColor {
 	color: Option<Color>,
+}
+
+/// Every primitive once, so each one's codegen gets compiled and round tripped
+struct TypesTest {
+	flag: bool,
+	byte: u8,
+	ushort: u16,
+	uint: u32,
+	ulong: u64,
+	sbyte: i8,
+	short: i16,
+	int: i32,
+	long: i64,
+	float: f32,
+	double: f64,
+	string: String,
+}
+
+/// Enum with data in its variants, for reading into a variant that's already there
+enum Shape {
+	Circle {
+		radius: f32,
+	},
+	Named {
+		name: String,
+	},
+	Empty,
+}
+
+/// Fixed size arrays, including one of a proxied type
+struct Arrays {
+	bytes: [u8; 4],
+	names: [String; 2],
+	colors: [Color; 2],
+}
+
+/// Every kind of buf, the proxied one holds the wire Color
+struct BufTest {
+	raw: Buf,
+	shapes: Buf<Vec<Shape>>,
+	colors: Buf<Vec<Color>>,
+	maybe: Option<Buf>,
 }

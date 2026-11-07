@@ -108,6 +108,7 @@ pub fn gen_module(
 		quote! {}
 	};
 	quote! {
+		#![cfg_attr(rustfmt, rustfmt::skip)]
 		#![allow(unused, clippy::all, private_bounds, private_interfaces)]
 		use gluon_ipc::Convertable as _;
 		#tracing_instrument
@@ -142,6 +143,7 @@ pub fn gen_external_protocol_def(gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 			)
 		}))
 		.map(|(name, derives, proxy)| {
+			let bufferable = named_is_bufferable(&name, gen_ctx);
 			let bits = derives.bits();
 			let proxy = proxy
 				.map(|v| {
@@ -159,6 +161,7 @@ pub fn gen_external_protocol_def(gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 					name: #name,
 					supported_derives: gluon_ipc::Derives::from_bits_truncate(#bits),
 					proxy: #proxy,
+					bufferable: #bufferable,
 				}
 			}
 		});
@@ -286,6 +289,7 @@ fn gen_public_type(ty: &Type, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 		}
 		Type::Array(inner, len) => {
 			let inner = gen_public_type(inner, gen_ctx);
+			let len = proc_macro2::Literal::usize_unsuffixed(*len as usize);
 			quote! { [#inner; #len] }
 		}
 		Type::Set(inner) => {
@@ -864,7 +868,7 @@ fn type_contains_inline(
 		| Type::String
 		| Type::Fd => false,
 		// heap-allocated or pointer — break any recursion cycle
-		Type::Vec(_) | Type::Set(_) | Type::Map(_, _) | Type::Ref(_) => false,
+		Type::Vec(_) | Type::Set(_) | Type::Map(_, _) | Type::Ref(_) | Type::Buf(_) => false,
 		// inline wrappers — propagate
 		Type::Option(inner) | Type::Array(inner, _) => {
 			type_contains_inline(inner, target, gen_ctx, visiting)
@@ -910,6 +914,106 @@ fn named_type_contains_inline(
 			.any(|f| type_contains_inline(&f.ty, target, gen_ctx, visiting));
 	}
 	false
+}
+
+/// whether a named type can go in a buf, judged from the protocol rather than any proxy
+/// since only the wire type ever gets encoded
+fn named_is_bufferable(name: &str, gen_ctx: &GenCtx) -> bool {
+	named_bufferable_inner(name, gen_ctx, &mut HashSet::new())
+}
+
+fn type_bufferable_inner(ty: &Type, gen_ctx: &GenCtx, visiting: &mut HashSet<String>) -> bool {
+	match ty {
+		Type::Fd | Type::Ref(_) | Type::Buf(_) => false,
+		Type::Custom(CustomType::Named(name)) => named_bufferable_inner(name, gen_ctx, visiting),
+		Type::Custom(CustomType::Qualified(namespace, type_name)) => {
+			let import = gen_ctx
+				.curr_protocol
+				.imports
+				.iter()
+				.find(|v| &v.alias == namespace)
+				.expect("unknown namespace used in qualified type");
+			if let Some(p) = gen_ctx
+				.other_local_protocols
+				.iter()
+				.find(|v| v.name == import.name)
+			{
+				return named_bufferable_inner(
+					type_name,
+					&GenCtx {
+						curr_protocol: p,
+						..*gen_ctx
+					},
+					visiting,
+				);
+			}
+			gen_ctx
+				.external_protocols
+				.iter()
+				.find(|v| v.protocol_name == import.name)
+				.unwrap_or_else(|| panic!("unknown import: {namespace}"))
+				.types
+				.iter()
+				.find(|v| v.name == type_name)
+				.unwrap_or_else(|| panic!("unknown type: {type_name}"))
+				.bufferable
+		}
+		Type::Array(v, _) | Type::Vec(v) | Type::Set(v) | Type::Option(v) => {
+			type_bufferable_inner(v, gen_ctx, visiting)
+		}
+		Type::Map(a, b) | Type::Result(a, b) => {
+			type_bufferable_inner(a, gen_ctx, visiting)
+				&& type_bufferable_inner(b, gen_ctx, visiting)
+		}
+		_ => true,
+	}
+}
+
+fn named_bufferable_inner(name: &str, gen_ctx: &GenCtx, visiting: &mut HashSet<String>) -> bool {
+	let key = format!("{}::{name}", gen_ctx.curr_protocol.name);
+	// already being checked further up, so the rest of the fields decide
+	if !visiting.insert(key.clone()) {
+		return true;
+	}
+	let proto = &gen_ctx.curr_protocol;
+	let fields: Vec<&Field> = if let Some((_, s)) = proto.structs.iter().find(|(n, _)| n == name) {
+		s.fields.iter().collect()
+	} else if let Some((_, e)) = proto.enums.iter().find(|(n, _)| n == name) {
+		e.variants.iter().flat_map(|v| v.fields.iter()).collect()
+	} else {
+		visiting.remove(&key);
+		return false;
+	};
+	let res = fields
+		.iter()
+		.all(|f| type_bufferable_inner(&f.ty, gen_ctx, visiting));
+	visiting.remove(&key);
+	res
+}
+
+fn gen_bufferable_impl(
+	name: &str,
+	ident: &proc_macro2::Ident,
+	gen_ctx: &GenCtx,
+) -> proc_macro2::TokenStream {
+	if named_is_bufferable(name, gen_ctx) {
+		quote! { impl gluon_ipc::Bufferable for #ident {} }
+	} else {
+		quote! {}
+	}
+}
+
+/// assigns a freshly read proxied field, those can't be read into since only the wire type
+/// is convertable
+fn gen_proxied_read(f: &Field, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
+	let wire_ty = gen_type(&f.ty, gen_ctx);
+	let conv = gen_wire_to_pub(&f.ty, quote! { __w }, gen_ctx);
+	quote! {
+		{
+			let __w: #wire_ty = gluon_ipc::Convertable::read(gluon_data)?;
+			#conv
+		}
+	}
 }
 
 pub fn gen_struct(def: &StructDef, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
@@ -964,6 +1068,16 @@ pub fn gen_struct(def: &StructDef, gen_ctx: &GenCtx) -> proc_macro2::TokenStream
 				quote! { self.#fname.write_owned(gluon_data)?; }
 			}
 		});
+		let read_intos = def.fields.iter().map(|f| {
+			let fname = format_ident!("{}", f.name.to_case(Case::Snake));
+			if type_has_proxy(&f.ty, gen_ctx) {
+				let read = gen_proxied_read(f, gen_ctx);
+				quote! { self.#fname = #read; }
+			} else {
+				quote! { gluon_ipc::Convertable::read_into(&mut self.#fname, gluon_data)?; }
+			}
+		});
+		let bufferable = gen_bufferable_impl(&def.name, &name, gen_ctx);
 		quote! {
 			impl gluon_ipc::Convertable for #name {
 				fn write(
@@ -979,11 +1093,17 @@ pub fn gen_struct(def: &StructDef, gen_ctx: &GenCtx) -> proc_macro2::TokenStream
 					Ok(#name {#(#field_names,)*})
 				}
 
+				fn read_into(&mut self, gluon_data: &mut gluon_ipc::DataReader) -> Result<(), gluon_ipc::ReadError> {
+					#(#read_intos)*
+					Ok(())
+				}
+
 				fn write_owned(self, gluon_data: &mut gluon_ipc::DataBuilder) -> Result<(), gluon_ipc::WriteError> {
 					#(#writes_owned)*
 					Ok(())
 				}
 			}
+			#bufferable
 		}
 	};
 	quote! {
@@ -1084,41 +1204,67 @@ pub fn gen_enum(def: &EnumDef, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 				}
 			}
 		});
-		let read_variants = def.variants.iter().enumerate().map(|(i, variant)| {
+		let read_variants = def
+			.variants
+			.iter()
+			.enumerate()
+			.map(|(i, variant)| {
+				let field_names = variant
+					.fields
+					.iter()
+					.map(|v| format_ident!("{}", v.name.to_case(Case::Snake)))
+					.collect::<Vec<_>>();
+				let name = format_ident!("{}", variant.name.to_case(Case::Pascal));
+				let i = i as u16;
+				if variant.fields.is_empty() {
+					quote! { #i => { #enum_name::#name }, }
+				} else {
+					let field_reads = variant.fields.iter().map(|f| {
+						let fname = format_ident!("{}", f.name.to_case(Case::Snake));
+						if type_has_proxy(&f.ty, gen_ctx) {
+							let wire_ty = gen_type(&f.ty, gen_ctx);
+							let pub_ty = gen_public_type(&f.ty, gen_ctx);
+							let conv = gen_wire_to_pub(&f.ty, quote! { __w }, gen_ctx);
+							quote! {
+								let #fname: #pub_ty = {
+									let __w: #wire_ty = gluon_ipc::Convertable::read(gluon_data)?;
+									#conv
+								};
+							}
+						} else {
+							quote! { let #fname = gluon_ipc::Convertable::read(gluon_data)?; }
+						}
+					});
+					quote! {
+						#i => {
+							#(#field_reads)*
+							#enum_name::#name { #(#field_names,)* }
+						},
+					}
+				}
+			})
+			.collect::<Vec<_>>();
+		let read_into_variants = def.variants.iter().enumerate().map(|(i, variant)| {
+			let name = format_ident!("{}", variant.name.to_case(Case::Pascal));
+			let i = i as u16;
 			let field_names = variant
 				.fields
 				.iter()
-				.map(|v| format_ident!("{}", v.name.to_case(Case::Snake)))
-				.collect::<Vec<_>>();
-			let name = format_ident!("{}", variant.name.to_case(Case::Pascal));
-			let i = i as u16;
-			if variant.fields.is_empty() {
-				quote! { #i => { #enum_name::#name }, }
-			} else {
-				let field_reads = variant.fields.iter().map(|f| {
-					let fname = format_ident!("{}", f.name.to_case(Case::Snake));
-					if type_has_proxy(&f.ty, gen_ctx) {
-						let wire_ty = gen_type(&f.ty, gen_ctx);
-						let pub_ty = gen_public_type(&f.ty, gen_ctx);
-						let conv = gen_wire_to_pub(&f.ty, quote! { __w }, gen_ctx);
-						quote! {
-							let #fname: #pub_ty = {
-								let __w: #wire_ty = gluon_ipc::Convertable::read(gluon_data)?;
-								#conv
-							};
-						}
-					} else {
-						quote! { let #fname = gluon_ipc::Convertable::read(gluon_data)?; }
-					}
-				});
-				quote! {
-					#i => {
-						#(#field_reads)*
-						#enum_name::#name { #(#field_names,)* }
-					},
+				.map(|v| format_ident!("{}", v.name.to_case(Case::Snake)));
+			let field_reads = variant.fields.iter().map(|f| {
+				let fname = format_ident!("{}", f.name.to_case(Case::Snake));
+				if type_has_proxy(&f.ty, gen_ctx) {
+					let read = gen_proxied_read(f, gen_ctx);
+					quote! { *#fname = #read; }
+				} else {
+					quote! { gluon_ipc::Convertable::read_into(#fname, gluon_data)?; }
 				}
+			});
+			quote! {
+				(#i, #enum_name::#name { #(#field_names,)* }) => { #(#field_reads)* },
 			}
 		});
+		let bufferable = gen_bufferable_impl(&def.name, &enum_name, gen_ctx);
 		quote! {
 			impl gluon_ipc::Convertable for #enum_name {
 				fn write(
@@ -1138,6 +1284,17 @@ pub fn gen_enum(def: &EnumDef, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 					})
 				}
 
+				fn read_into(&mut self, gluon_data: &mut gluon_ipc::DataReader) -> Result<(), gluon_ipc::ReadError> {
+					match (gluon_data.read_u16()?, self) {
+						#(#read_into_variants)*
+						(v, s) => *s = match v {
+							#(#read_variants)*
+							v => return Err(gluon_ipc::ReadError::UnknownEnumVariant(v)),
+						},
+					}
+					Ok(())
+				}
+
 				fn write_owned(self, gluon_data: &mut gluon_ipc::DataBuilder) -> Result<(), gluon_ipc::WriteError> {
 					match self {
 						#(#write_owned_variants)*
@@ -1145,6 +1302,7 @@ pub fn gen_enum(def: &EnumDef, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 					Ok(())
 				}
 			}
+			#bufferable
 		}
 	};
 	quote! {
@@ -1253,9 +1411,18 @@ pub fn gen_type(def: &Type, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 		Type::I32 => quote! {i32},
 		Type::I64 => quote! {i64},
 		Type::F32 => quote! {f32},
-		Type::F64 => quote! {i64},
+		Type::F64 => quote! {f64},
 		Type::String => quote! {String},
 		Type::Fd => quote! {std::os::fd::OwnedFd},
+		Type::Buf(None) => quote! {gluon_ipc::Buf},
+		// always the wire type, a proxy is only a convenience for values you hold
+		Type::Buf(Some(inner)) => {
+			if !type_bufferable_inner(inner, gen_ctx, &mut HashSet::new()) {
+				panic!("Buf<{inner:?}> can't hold anything with an Fd or Ref in it");
+			}
+			let inner = gen_type(inner, gen_ctx);
+			quote! {gluon_ipc::Buf<#inner>}
+		}
 		Type::Ref(ref_type) => match ref_type {
 			Some(custom) => gen_custom_type(custom, gen_ctx),
 			None => quote! {gluon_ipc::Ref},
@@ -1263,6 +1430,7 @@ pub fn gen_type(def: &Type, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 		Type::Custom(custom) => gen_custom_type(custom, gen_ctx),
 		Type::Array(type_def, len) => {
 			let type_def = gen_type(type_def, gen_ctx);
+			let len = proc_macro2::Literal::usize_unsuffixed(*len as usize);
 			quote! {[#type_def; #len]}
 		}
 		Type::Vec(type_def) => {
@@ -1341,7 +1509,7 @@ fn supported_derives_inner(
 					| Derives::SERDE)
 		}
 		// OwnedFd doesn't implement any derivable traits (other than Debug)
-		Type::Fd => Derives::empty(),
+		Type::Fd | Type::Buf(_) => Derives::empty(),
 		Type::Ref(_) => {
 			requested & (Derives::CLONE | Derives::PARTIAL_EQ | Derives::EQ | Derives::HASH)
 		}
@@ -1521,6 +1689,29 @@ mod tests {
 			protocol,
 		};
 		(local, Derives::empty())
+	}
+
+	#[test]
+	#[should_panic(expected = "can't hold anything with an Fd or Ref")]
+	fn buf_of_descriptors_is_refused() {
+		let (local, derives) = make_ctx(
+			parse_idl(
+				"test",
+				r#"
+                /// Holds an fd
+                struct Holder {
+                    fd: Fd,
+                }
+
+                /// A buf of something that can't go in one
+                struct Bad {
+                    held: Buf<Vec<Holder>>,
+                }
+            "#,
+			)
+			.unwrap(),
+		);
+		gen_module(&local, &[], &[], derives, &[], false);
 	}
 
 	#[test]

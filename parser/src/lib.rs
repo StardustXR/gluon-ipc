@@ -83,6 +83,7 @@ pub enum Type {
 	String,
 	Fd,
 	Ref(Option<CustomType>), // binder object reference, optionally typed
+	Buf(Option<Box<Type>>),  // sized file by fd, raw bytes or an encoded value
 	Custom(CustomType),      // reference to a struct, enum, or imported type by name
 	Array(Box<Type>, u32),
 	Vec(Box<Type>),
@@ -357,42 +358,42 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Protocol, extra::Err<Rich<
 	// --- Type ---
 	let type_parser = recursive(|p| {
 		choice((
-			just("bool").to(Type::Bool),
-			just("u8").to(Type::U8),
-			just("u16").to(Type::U16),
-			just("u32").to(Type::U32),
-			just("u64").to(Type::U64),
-			just("i8").to(Type::I8),
-			just("i16").to(Type::I16),
-			just("i32").to(Type::I32),
-			just("i64").to(Type::I64),
-			just("f32").to(Type::F32),
-			just("f64").to(Type::F64),
-			just("String").to(Type::String),
-			just("Fd").to(Type::Fd),
-			just("Vec").ignore_then(
+			keyword("bool").to(Type::Bool),
+			keyword("u8").to(Type::U8),
+			keyword("u16").to(Type::U16),
+			keyword("u32").to(Type::U32),
+			keyword("u64").to(Type::U64),
+			keyword("i8").to(Type::I8),
+			keyword("i16").to(Type::I16),
+			keyword("i32").to(Type::I32),
+			keyword("i64").to(Type::I64),
+			keyword("f32").to(Type::F32),
+			keyword("f64").to(Type::F64),
+			keyword("String").to(Type::String),
+			keyword("Fd").to(Type::Fd),
+			keyword("Vec").ignore_then(
 				p.clone()
 					.map(|t: Type| Type::Vec(Box::new(t)))
 					.delimited_by(just('<'), just('>')),
 			),
-			just("Set").ignore_then(
+			keyword("Set").ignore_then(
 				p.clone()
 					.map(|t: Type| Type::Set(Box::new(t)))
 					.delimited_by(just('<'), just('>')),
 			),
-			just("Map").ignore_then(
+			keyword("Map").ignore_then(
 				p.clone()
 					.then_ignore(just(',').padded_by(ws))
 					.then(p.clone())
 					.map(|(k, v): (Type, Type)| Type::Map(Box::new(k), Box::new(v)))
 					.delimited_by(just('<'), just('>')),
 			),
-			just("Option").ignore_then(
+			keyword("Option").ignore_then(
 				p.clone()
 					.map(|t: Type| Type::Option(Box::new(t)))
 					.delimited_by(just('<'), just('>')),
 			),
-			just("Result").ignore_then(
+			keyword("Result").ignore_then(
 				p.clone()
 					.then_ignore(just(',').padded_by(ws))
 					.then(p.clone())
@@ -404,7 +405,15 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Protocol, extra::Err<Rich<
 				.then(text::int(10).map(|s: &str| s.parse::<u32>().unwrap()))
 				.map(|(t, n): (Type, u32)| Type::Array(Box::new(t), n))
 				.delimited_by(just('['), just(']')),
-			just("Ref")
+			keyword("Buf")
+				.ignore_then(
+					p.clone()
+						.map(Box::new)
+						.delimited_by(just('<'), just('>'))
+						.or_not(),
+				)
+				.map(Type::Buf),
+			keyword("Ref")
 				.then(
 					text::ident()
 						.map(str::to_string)
@@ -1648,6 +1657,67 @@ fn test_parse_qualified_type_in_struct() {
 	assert_eq!(
 		s.fields[1].ty,
 		Type::Custom(CustomType::Qualified("spatial".into(), "Quat".into()))
+	);
+}
+
+#[test]
+fn test_parse_builtin_prefixed_names() {
+	let input = r#"
+        /// Names that start with a builtin type
+        struct Holder {
+            a: FdHolder,
+            b: Reference,
+            c: Stringy,
+            d: Vector,
+            e: Optional,
+            f: u8x,
+            g: Fd,
+            h: Ref<Reference>,
+        }
+    "#;
+	let protocol = parse_idl("Test", input).unwrap();
+	let s = &protocol.structs[0].1;
+	let named = |n: &str| Type::Custom(CustomType::Named(n.into()));
+	assert_eq!(s.fields[0].ty, named("FdHolder"));
+	assert_eq!(s.fields[1].ty, named("Reference"));
+	assert_eq!(s.fields[2].ty, named("Stringy"));
+	assert_eq!(s.fields[3].ty, named("Vector"));
+	assert_eq!(s.fields[4].ty, named("Optional"));
+	assert_eq!(s.fields[5].ty, named("u8x"));
+	assert_eq!(s.fields[6].ty, Type::Fd);
+	assert_eq!(
+		s.fields[7].ty,
+		Type::Ref(Some(CustomType::Named("Reference".into())))
+	);
+}
+
+#[test]
+fn test_parse_buf() {
+	let input = r#"
+        /// Bufs
+        struct Bufs {
+            raw: Buf,
+            lines: Buf<Vec<types::Line>>,
+            nested: Option<Buf<u8>>,
+            prefixed: Buffer,
+        }
+    "#;
+	let protocol = parse_idl("Test", input).unwrap();
+	let s = &protocol.structs[0].1;
+	assert_eq!(s.fields[0].ty, Type::Buf(None));
+	assert_eq!(
+		s.fields[1].ty,
+		Type::Buf(Some(Box::new(Type::Vec(Box::new(Type::Custom(
+			CustomType::Qualified("types".into(), "Line".into())
+		))))))
+	);
+	assert_eq!(
+		s.fields[2].ty,
+		Type::Option(Box::new(Type::Buf(Some(Box::new(Type::U8)))))
+	);
+	assert_eq!(
+		s.fields[3].ty,
+		Type::Custom(CustomType::Named("Buffer".into()))
 	);
 }
 

@@ -1,4 +1,7 @@
-use std::{os::fd::{BorrowedFd, OwnedFd}, string::FromUtf8Error};
+use std::{
+	os::fd::{BorrowedFd, OwnedFd},
+	string::FromUtf8Error,
+};
 
 use strong_ipc::{FdVec, Message, Ref};
 use thiserror::Error;
@@ -56,8 +59,55 @@ impl DataBuilder {
 		}
 		message
 	}
+
+	/// encodes a value on its own instead of as a message, for bytes that live somewhere other
+	/// than a socket like a buf's file or a log on disk
+	///
+	/// there's no code header, so finish it with [`DataBuilder::into_bytes`], not
+	/// [`DataBuilder::finish`], which would write the code over the first 4 bytes
+	pub fn bare() -> Self {
+		Self::bare_in(Vec::new())
+	}
+	/// [`DataBuilder::bare`] writing into an old buffer, so encoding the same kind of value
+	/// over and over doesn't allocate every time
+	///
+	/// whatever was in `data` is dropped, only its capacity is kept
+	pub fn bare_in(mut data: Vec<u8>) -> Self {
+		data.clear();
+		Self {
+			data,
+			fds: Vec::new(),
+		}
+	}
+	/// the encoded value, in the same format a message payload uses
+	///
+	/// descriptors only travel alongside a message, never inside its bytes, so a value that
+	/// wrote any can't be represented here and would silently lose them otherwise
+	pub fn into_bytes(self) -> Result<Vec<u8>, WriteError> {
+		match self.fds.is_empty() {
+			true => Ok(self.data),
+			false => Err(WriteError::DescriptorsInBytes),
+		}
+	}
 }
 impl DataReader {
+	/// reads back a value encoded by [`DataBuilder::bare`], from wherever those bytes were kept
+	///
+	/// there's no code header to skip and no descriptors, so reading an fd or ref from this
+	/// is [`ReadError::MissingDescriptor`]
+	pub fn from_bytes(data: Vec<u8>) -> Self {
+		Self {
+			data,
+			cursor: 0,
+			fds: Vec::new().into_iter(),
+		}
+	}
+	/// hands the buffer back once you're done reading, so the next read or a
+	/// [`DataBuilder::bare_in`] can reuse its allocation
+	pub fn into_bytes(self) -> Vec<u8> {
+		self.data
+	}
+
 	/// Splits a received message into its transaction code and a reader over the rest.
 	pub fn from_wire(data: &[u8], fds: FdVec) -> Result<(u32, Self), ReadError> {
 		let code = data
@@ -73,6 +123,11 @@ impl DataReader {
 				fds: fds.into_vec().into_iter(),
 			},
 		))
+	}
+
+	/// a length prefix is untrusted, so preallocate no more elements than there are bytes left
+	pub(crate) fn capacity_for(&self, len: u32) -> usize {
+		(len as usize).min(self.data.len() - self.cursor)
 	}
 
 	fn read_bytes(&mut self, len: usize) -> Result<&[u8], ReadError> {
@@ -169,6 +224,10 @@ pub enum WriteError {
 	ListToLong,
 	#[error("Could not duplicate borrowed fd: {0}")]
 	DupFd(#[source] std::io::Error),
+	#[error("Descriptors can't be encoded into bare bytes")]
+	DescriptorsInBytes,
+	#[error("Could not make buf: {0}")]
+	Buf(#[from] crate::BufError),
 }
 
 impl DataReader {
@@ -176,6 +235,16 @@ impl DataReader {
 		let len = self.read_u32()?;
 		let data = self.read_bytes(len as usize)?;
 		Ok(String::from_utf8(data.to_vec())?)
+	}
+	/// [`DataReader::read_string`] into `out`'s existing allocation
+	pub fn read_string_into(&mut self, out: &mut String) -> Result<(), ReadError> {
+		let len = self.read_u32()?;
+		let data = self.read_bytes(len as usize)?;
+		let mut bytes = std::mem::take(out).into_bytes();
+		bytes.clear();
+		bytes.extend_from_slice(data);
+		*out = String::from_utf8(bytes)?;
+		Ok(())
 	}
 	pub fn read_f64(&mut self) -> Result<f64, ReadError> {
 		let bytes = self.read_bytes(size_of::<f64>())?;
@@ -262,4 +331,6 @@ pub enum ReadError {
 	StringNotUtf8(#[from] FromUtf8Error),
 	#[error("Unkown enum variant: {0}")]
 	UnknownEnumVariant(u16),
+	#[error("Bad buf: {0}")]
+	Buf(#[from] crate::BufError),
 }

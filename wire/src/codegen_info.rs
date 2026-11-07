@@ -36,4 +36,6 @@ pub struct ExternalGluonType {
 	pub name: &'static str,
 	pub proxy: Option<&'static str>,
 	pub supported_derives: Derives,
+	/// fd free, so it can go in a buf
+	pub bufferable: bool,
 }

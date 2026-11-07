@@ -38,7 +38,57 @@
 //! [`RefExt::new_service`], and recovered from a ref that comes back in by
 //! [`RefExt::local_from_ref`]. It is an ergonomic pairing only — nothing about it reaches
 //! the wire, where a `Ref` is still just a `Ref`.
+//!
+//! # Bufs
+//!
+//! A message tops out at [`MAX_MESSAGE_SIZE`], so anything bigger goes in a [`Buf`]: a
+//! regular file sent by fd along with how many bytes of it count. A plain `Buf` is raw
+//! bytes, a `Buf<T>` holds a `T` encoded the same way a message payload is.
+//!
+//! ```text
+//!   interface Canvas {
+//!       set_lines(lines: Buf<Vec<Line>>) -> ()
+//!       set_keymap(keymap: Buf) -> ()
+//!   }
+//! ```
+//!
+//! On the wire it's a `u64` length in the bytes and the fd in the descriptors. Receiving
+//! one checks the fd is a regular file, open for reading, and at least that long, so a
+//! pipe or a socket can't sneak in. Any such file works, a memfd from [`Buf::new`], a file
+//! on disk, or whatever [`Buf::from_fd`] is handed.
+//!
+//! The contents have to be [`Bufferable`], meaning no fds or refs anywhere inside, since
+//! those only exist alongside the message that carried them. Codegen works that out from
+//! the protocol and refuses a `Buf<T>` that breaks it.
+//!
+//! Nothing is sealed, so the sender can rewrite or truncate the file whenever it likes.
+//! Reads go through `pread` rather than mmap, so that can only ever give you garbage or a
+//! [`BufError::TooShort`], never a crash. The length is the sender's claim and the file can
+//! be huge and sparse, so look at [`Buf::len`] before decoding one from a peer you don't
+//! trust.
+//!
+//! ## Live bufs and the lease
+//!
+//! [`BufWriter`] keeps one memfd and rewrites it on every [`BufWriter::set`]. Share it
+//! once, and after that a peer only needs the new length for [`Buf::set_len`], or a fresh
+//! [`BufWriter::share`] if that's simpler. [`Buf::decode_into`] on the other end reuses
+//! the old value's allocations, so a buf updated every frame stops allocating.
+//!
+//! The catch is that a write and a read can overlap and tear. The fix is a lease: a
+//! method taking a buf you'll rewrite returns `()` instead of being oneway, the handler
+//! decodes before it returns, and the sender waits for that reply before the next `set`.
+//! The reply then means "done reading", and no locking is needed.
+//!
+//! ```ignore
+//! let mut w = BufWriter::new()?;
+//! w.set(&lines)?;
+//! canvas.set_lines(w.share()?).await?;
+//! // the handler has decoded it once the reply arrives, so rewriting is safe now
+//! w.set(&more_lines)?;
+//! canvas.set_lines(w.share()?).await?;
+//! ```
 
+mod buf;
 mod codegen_info;
 mod data;
 mod liveness;
@@ -51,6 +101,7 @@ pub use strong_ipc::{
 	UCred,
 };
 
+pub use buf::*;
 pub use codegen_info::*;
 pub use data::*;
 pub use liveness::*;
@@ -66,7 +117,21 @@ pub trait Convertable: 'static + Sized {
 	fn write(&self, data: &mut DataBuilder) -> Result<(), WriteError>;
 	fn write_owned(self, data: &mut DataBuilder) -> Result<(), WriteError>;
 	fn read(data: &mut DataReader) -> Result<Self, ReadError>;
+
+	/// [`Convertable::read`] over a value you already have, reusing whatever it allocated, so
+	/// decoding the same kind of thing over and over (like a buf that keeps getting updated)
+	/// settles into not allocating at all
+	///
+	/// on error `self` is left partly overwritten, still a valid value but a mix of old and new
+	fn read_into(&mut self, data: &mut DataReader) -> Result<(), ReadError> {
+		*self = Self::read(data)?;
+		Ok(())
+	}
 }
+
+/// plain data that can live in a buf, so nothing that carries an fd or ref since those
+/// only exist in the message they were sent with
+pub trait Bufferable: Convertable {}
 
 /// Anything that can produce the ref that reaches it.
 pub trait ToRef: Send + Sync + 'static {
@@ -294,6 +359,153 @@ mod tests {
 		assert!(matches!(
 			reader.read_fd(),
 			Err(ReadError::MissingDescriptor)
+		));
+	}
+
+	fn forged_len() -> DataReader {
+		let mut builder = DataBuilder::new();
+		builder.write_u32(u32::MAX).unwrap();
+		builder.write_u64(7).unwrap();
+		let message = builder.finish(0);
+		let (_, reader) = DataReader::from_wire(message.data(), FdVec::new()).unwrap();
+		reader
+	}
+
+	#[test]
+	fn bare_bytes_round_trip() {
+		let mut builder = DataBuilder::bare();
+		"hello".to_string().write(&mut builder).unwrap();
+		7u32.write(&mut builder).unwrap();
+		let bytes = builder.into_bytes().unwrap();
+		assert_eq!(bytes.len(), 4 + 5 + 4);
+
+		let mut reader = DataReader::from_bytes(bytes);
+		assert_eq!(String::read(&mut reader).unwrap(), "hello");
+		assert_eq!(u32::read(&mut reader).unwrap(), 7);
+		assert!(matches!(
+			u8::read(&mut reader),
+			Err(ReadError::NotEnoughBytes)
+		));
+	}
+
+	#[test]
+	fn bare_buffers_are_reused() {
+		let mut reader = DataReader::from_bytes(Vec::with_capacity(1024));
+		let _ = u8::read(&mut reader);
+		let bytes = reader.into_bytes();
+		let cap = bytes.capacity();
+
+		let mut builder = DataBuilder::bare_in(bytes);
+		7u64.write(&mut builder).unwrap();
+		let bytes = builder.into_bytes().unwrap();
+		assert_eq!(bytes, 7u64.to_le_bytes());
+		assert_eq!(bytes.capacity(), cap);
+	}
+
+	#[test]
+	fn descriptors_cant_be_bare() {
+		let (fd, _) = std::io::pipe().unwrap();
+		let mut builder = DataBuilder::bare();
+		builder.write_owned_fd(fd.into()).unwrap();
+		assert!(matches!(
+			builder.into_bytes(),
+			Err(WriteError::DescriptorsInBytes)
+		));
+	}
+
+	fn read_over<T: Convertable>(target: &mut T, v: &T) {
+		let mut builder = DataBuilder::bare();
+		v.write(&mut builder).unwrap();
+		let mut reader = DataReader::from_bytes(builder.into_bytes().unwrap());
+		target.read_into(&mut reader).unwrap();
+	}
+
+	#[test]
+	fn read_into_reuses_nested_allocations() {
+		let mut target = vec![Vec::<u32>::with_capacity(64), Vec::with_capacity(64)];
+		let outer = target.as_ptr();
+		let inner = target[0].as_ptr();
+
+		read_over(&mut target, &vec![vec![1, 2, 3], vec![4]]);
+		assert_eq!(target, vec![vec![1, 2, 3], vec![4]]);
+		assert_eq!(target.as_ptr(), outer);
+		assert_eq!(target[0].as_ptr(), inner);
+	}
+
+	#[test]
+	fn read_into_grows_and_shrinks() {
+		let mut target = vec![1u32, 2];
+		read_over(&mut target, &vec![5, 6, 7, 8]);
+		assert_eq!(target, vec![5, 6, 7, 8]);
+		read_over(&mut target, &vec![9]);
+		assert_eq!(target, vec![9]);
+	}
+
+	#[test]
+	fn read_into_reuses_strings() {
+		let mut target = String::with_capacity(64);
+		let p = target.as_ptr();
+		read_over(&mut target, &"hello".to_string());
+		assert_eq!(target, "hello");
+		assert_eq!(target.as_ptr(), p);
+	}
+
+	#[test]
+	fn arrays_have_no_length() {
+		let v = [String::from("a"), String::from("bc")];
+		let mut builder = DataBuilder::bare();
+		v.write(&mut builder).unwrap();
+		let bytes = builder.into_bytes().unwrap();
+		assert_eq!(bytes.len(), 4 + 1 + 4 + 2);
+		let mut reader = DataReader::from_bytes(bytes);
+		assert_eq!(<[String; 2]>::read(&mut reader).unwrap(), v);
+
+		let mut target = [String::with_capacity(64), String::with_capacity(64)];
+		let p = target[1].as_ptr();
+		read_over(&mut target, &v);
+		assert_eq!((&target, target[1].as_ptr()), (&v, p));
+	}
+
+	#[test]
+	fn read_into_switches_variants() {
+		let mut target = Some(vec![1u32]);
+		read_over(&mut target, &None);
+		assert_eq!(target, None);
+		read_over(&mut target, &Some(vec![2]));
+		assert_eq!(target, Some(vec![2]));
+
+		let mut target: Result<u32, String> = Ok(1);
+		read_over(&mut target, &Err("no".into()));
+		assert_eq!(target, Err("no".into()));
+		read_over(&mut target, &Err("again".into()));
+		assert_eq!(target, Err("again".into()));
+	}
+
+	#[test]
+	fn read_into_replaces_sets_and_maps() {
+		use std::collections::{HashMap, HashSet};
+		let mut set = HashSet::from([1u32, 2, 3]);
+		read_over(&mut set, &HashSet::from([4]));
+		assert_eq!(set, HashSet::from([4]));
+
+		let mut map = HashMap::from([(1u32, "a".to_string())]);
+		read_over(&mut map, &HashMap::from([(2, "b".to_string())]));
+		assert_eq!(map, HashMap::from([(2, "b".to_string())]));
+	}
+
+	#[test]
+	fn forged_lengths_dont_preallocate() {
+		assert!(matches!(
+			Vec::<u64>::read(&mut forged_len()),
+			Err(ReadError::NotEnoughBytes)
+		));
+		assert!(matches!(
+			std::collections::HashSet::<u64>::read(&mut forged_len()),
+			Err(ReadError::NotEnoughBytes)
+		));
+		assert!(matches!(
+			std::collections::HashMap::<u64, u64>::read(&mut forged_len()),
+			Err(ReadError::NotEnoughBytes)
 		));
 	}
 }

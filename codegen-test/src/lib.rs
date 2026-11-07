@@ -120,6 +120,14 @@ impl TestHandler for TestHandlerImpl {
 			z: 3.0,
 		}
 	}
+
+	async fn count_shapes(
+		&self,
+		_ctx: Context,
+		shapes: gluon_ipc::Buf<Vec<protocol::test::Shape>>,
+	) -> u32 {
+		shapes.decode().map_or(0, |v| v.len() as u32)
+	}
 }
 
 /// A second handler for the same interface, so a test can ask a proxy for the *wrong*
@@ -152,6 +160,13 @@ impl TestHandler for SecondTestHandler {
 			y: 0.0,
 			z: 0.0,
 		}
+	}
+	async fn count_shapes(
+		&self,
+		_ctx: Context,
+		_shapes: gluon_ipc::Buf<Vec<protocol::test::Shape>>,
+	) -> u32 {
+		0
 	}
 }
 
@@ -349,6 +364,40 @@ mod tests {
 		));
 	}
 
+	#[tokio::test]
+	async fn buf_param_goes_over_the_socket() {
+		let (_node, local) = test_node();
+		let shapes = vec![protocol::test::Shape::Circle { radius: 1.0 }; 3000];
+		let buf = gluon_ipc::Buf::new(&shapes).unwrap();
+		assert!(buf.len() > gluon_ipc::MAX_MESSAGE_SIZE as u64);
+		assert_eq!(local.proxy().count_shapes(buf).await.unwrap(), 3000);
+	}
+
+	#[test]
+	fn buf_fields_round_trip() {
+		use gluon_ipc::{Buf, Convertable};
+		use protocol::test::{BufTest, Shape, proxied::Color};
+		use std::os::fd::AsFd;
+		let v = BufTest {
+			raw: Buf::from_bytes(b"raw").unwrap(),
+			shapes: Buf::new(&vec![Shape::Empty]).unwrap(),
+			colors: Buf::new(&vec![Color::Red, Color::Blue]).unwrap(),
+			maybe: None,
+		};
+		let mut b = gluon_ipc::DataBuilder::new();
+		v.write(&mut b).unwrap();
+		let fds: gluon_ipc::FdVec = [v.raw.as_fd(), v.shapes.as_fd(), v.colors.as_fd()]
+			.into_iter()
+			.map(|f| f.try_clone_to_owned().unwrap())
+			.collect();
+		let (_, mut r) = gluon_ipc::DataReader::from_wire(b.finish(0).data(), fds).unwrap();
+		let got = BufTest::read(&mut r).unwrap();
+		assert_eq!(got.raw.bytes().unwrap(), b"raw");
+		assert_eq!(got.shapes.decode().unwrap(), vec![Shape::Empty]);
+		assert_eq!(got.colors.decode().unwrap(), vec![Color::Red, Color::Blue]);
+		assert!(got.maybe.is_none());
+	}
+
 	/// A ref sent out and echoed back arrives as a descriptor for the same socket, and
 	/// strong-ipc's registry is what makes that compare equal to the one we sent.
 	#[tokio::test]
@@ -465,5 +514,115 @@ mod tests {
 		let b = a; // copy
 		let _ = a; // still valid
 		assert_eq!(b.primary, MyColor::Green);
+	}
+
+	#[test]
+	fn primitives_round_trip() {
+		use gluon_ipc::Convertable;
+		let v = protocol::test::TypesTest {
+			flag: true,
+			byte: u8::MAX,
+			ushort: u16::MAX,
+			uint: u32::MAX,
+			ulong: u64::MAX,
+			sbyte: i8::MIN,
+			short: i16::MIN,
+			int: i32::MIN,
+			long: i64::MIN,
+			float: 0.1,
+			double: 0.1,
+			string: "hello".into(),
+		};
+		let mut b = gluon_ipc::DataBuilder::new();
+		v.write(&mut b).unwrap();
+		let m = b.finish(0);
+		let (_, mut r) =
+			gluon_ipc::DataReader::from_wire(m.data(), gluon_ipc::FdVec::new()).unwrap();
+		assert_eq!(protocol::test::TypesTest::read(&mut r).unwrap(), v);
+	}
+
+	fn read_over<T: gluon_ipc::Convertable>(out: &mut T, v: &T) {
+		let mut b = gluon_ipc::DataBuilder::bare();
+		v.write(&mut b).unwrap();
+		let mut r = gluon_ipc::DataReader::from_bytes(b.into_bytes().unwrap());
+		out.read_into(&mut r).unwrap();
+	}
+
+	#[test]
+	fn generated_read_into() {
+		use protocol::test::{Palette, Shape};
+		let mut shape = Shape::Named { name: "abc".into() };
+		let Shape::Named { name } = &shape else {
+			unreachable!()
+		};
+		let ptr = name.as_ptr();
+		read_over(&mut shape, &Shape::Named { name: "xyz".into() });
+		let Shape::Named { name } = &shape else {
+			unreachable!()
+		};
+		assert_eq!((name.as_str(), name.as_ptr()), ("xyz", ptr));
+
+		read_over(&mut shape, &Shape::Circle { radius: 2.0 });
+		assert_eq!(shape, Shape::Circle { radius: 2.0 });
+		read_over(&mut shape, &Shape::Empty);
+		assert_eq!(shape, Shape::Empty);
+
+		let mut palette = Palette {
+			primary: MyColor::Red,
+			secondary: MyColor::Red,
+		};
+		let v = Palette {
+			primary: MyColor::Green,
+			secondary: MyColor::Blue,
+		};
+		read_over(&mut palette, &v);
+		assert_eq!(palette, v);
+	}
+
+	#[test]
+	fn generated_arrays() {
+		use protocol::test::Arrays;
+		let v = Arrays {
+			bytes: [1, 2, 3, 4],
+			names: ["a".into(), "b".into()],
+			colors: [MyColor::Green, MyColor::Blue],
+		};
+		assert_eq!(gluon_ipc::Buf::new(&v).unwrap().decode().unwrap(), v);
+		let mut out = Arrays {
+			bytes: [0; 4],
+			names: [String::new(), String::new()],
+			colors: [MyColor::Red; 2],
+		};
+		read_over(&mut out, &v);
+		assert_eq!(out, v);
+	}
+
+	#[test]
+	fn generated_bufferable() {
+		use protocol::test::{EXTERNAL_PROTOCOL, Palette, Shape};
+		let buf = gluon_ipc::Buf::new(&vec![Shape::Named { name: "hi".into() }; 2000]).unwrap();
+		assert!(buf.len() > gluon_ipc::MAX_MESSAGE_SIZE as u64);
+		assert_eq!(
+			buf.decode().unwrap(),
+			vec![Shape::Named { name: "hi".into() }; 2000]
+		);
+		let v = Palette {
+			primary: MyColor::Green,
+			secondary: MyColor::Blue,
+		};
+		assert_eq!(gluon_ipc::Buf::new(&v).unwrap().decode().unwrap(), v);
+
+		let bufferable = |n: &str| {
+			EXTERNAL_PROTOCOL
+				.types
+				.iter()
+				.find(|t| t.name == n)
+				.unwrap()
+				.bufferable
+		};
+		assert!(bufferable("Palette") && bufferable("Shape") && bufferable("Color"));
+		assert!(
+			!bufferable("TestStruct") && !bufferable("FdTestStruct") && !bufferable("TestEnum")
+		);
 	}
 }
