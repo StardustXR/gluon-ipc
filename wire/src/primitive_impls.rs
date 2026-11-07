@@ -172,6 +172,37 @@ impl<T: Convertable> Convertable for Vec<T> {
 		Ok(())
 	}
 }
+/// no length on the wire, the schema already says how many
+impl<T: Convertable, const N: usize> Convertable for [T; N] {
+	fn write(&self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
+		for v in self {
+			v.write(data)?;
+		}
+		Ok(())
+	}
+
+	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
+		for v in self {
+			v.write_owned(data)?;
+		}
+		Ok(())
+	}
+
+	fn read(data: &mut crate::DataReader) -> Result<Self, ReadError> {
+		let mut out = Vec::with_capacity(N);
+		for _ in 0..N {
+			out.push(T::read(data)?);
+		}
+		Ok(out.try_into().unwrap_or_else(|_| unreachable!()))
+	}
+
+	fn read_into(&mut self, data: &mut crate::DataReader) -> Result<(), ReadError> {
+		for v in self {
+			v.read_into(data)?;
+		}
+		Ok(())
+	}
+}
 impl<T: Convertable> Convertable for Option<T> {
 	fn write(&self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
 		data.write_bool(self.is_some())?;
@@ -374,6 +405,7 @@ impl<T: Bufferable, E: Bufferable> Bufferable for Result<T, E> {}
 impl<K: Hash + Eq + Bufferable, V: Bufferable> Bufferable for HashMap<K, V> {}
 impl<T: Hash + Eq + Bufferable> Bufferable for HashSet<T> {}
 impl<T: Bufferable> Bufferable for Vec<T> {}
+impl<T: Bufferable, const N: usize> Bufferable for [T; N] {}
 impl<T: Bufferable> Bufferable for Option<T> {}
 impl Bufferable for String {}
 impl Bufferable for bool {}

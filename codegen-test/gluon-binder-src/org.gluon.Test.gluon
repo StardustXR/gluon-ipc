@@ -86,3 +86,10 @@ enum Shape {
 	},
 	Empty,
 }
+
+/// Fixed size arrays, including one of a proxied type
+struct Arrays {
+	bytes: [u8; 4],
+	names: [String; 2],
+	colors: [Color; 2],
+}

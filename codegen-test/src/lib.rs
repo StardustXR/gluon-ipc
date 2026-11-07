@@ -531,6 +531,24 @@ mod tests {
 	}
 
 	#[test]
+	fn generated_arrays() {
+		use protocol::test::Arrays;
+		let v = Arrays {
+			bytes: [1, 2, 3, 4],
+			names: ["a".into(), "b".into()],
+			colors: [MyColor::Green, MyColor::Blue],
+		};
+		assert_eq!(gluon_ipc::Buf::new(&v).unwrap().decode().unwrap(), v);
+		let mut out = Arrays {
+			bytes: [0; 4],
+			names: [String::new(), String::new()],
+			colors: [MyColor::Red; 2],
+		};
+		read_over(&mut out, &v);
+		assert_eq!(out, v);
+	}
+
+	#[test]
 	fn generated_bufferable() {
 		use protocol::test::{EXTERNAL_PROTOCOL, Palette, Shape};
 		let buf = gluon_ipc::Buf::new(&vec![Shape::Named { name: "hi".into() }; 2000]).unwrap();

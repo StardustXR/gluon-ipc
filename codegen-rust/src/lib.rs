@@ -289,6 +289,7 @@ fn gen_public_type(ty: &Type, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 		}
 		Type::Array(inner, len) => {
 			let inner = gen_public_type(inner, gen_ctx);
+			let len = proc_macro2::Literal::usize_unsuffixed(*len as usize);
 			quote! { [#inner; #len] }
 		}
 		Type::Set(inner) => {
@@ -1420,6 +1421,7 @@ pub fn gen_type(def: &Type, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 		Type::Custom(custom) => gen_custom_type(custom, gen_ctx),
 		Type::Array(type_def, len) => {
 			let type_def = gen_type(type_def, gen_ctx);
+			let len = proc_macro2::Literal::usize_unsuffixed(*len as usize);
 			quote! {[#type_def; #len]}
 		}
 		Type::Vec(type_def) => {

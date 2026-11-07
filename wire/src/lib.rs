@@ -402,6 +402,22 @@ mod tests {
 	}
 
 	#[test]
+	fn arrays_have_no_length() {
+		let v = [String::from("a"), String::from("bc")];
+		let mut builder = DataBuilder::bare();
+		v.write(&mut builder).unwrap();
+		let bytes = builder.into_bytes().unwrap();
+		assert_eq!(bytes.len(), 4 + 1 + 4 + 2);
+		let mut reader = DataReader::from_bytes(bytes);
+		assert_eq!(<[String; 2]>::read(&mut reader).unwrap(), v);
+
+		let mut target = [String::with_capacity(64), String::with_capacity(64)];
+		let p = target[1].as_ptr();
+		read_over(&mut target, &v);
+		assert_eq!((&target, target[1].as_ptr()), (&v, p));
+	}
+
+	#[test]
 	fn read_into_switches_variants() {
 		let mut target = Some(vec![1u32]);
 		read_over(&mut target, &None);

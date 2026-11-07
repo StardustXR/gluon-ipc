@@ -37,6 +37,12 @@ pub const EXTERNAL_PROTOCOL: gluon_ipc::ExternalProtocol = gluon_ipc::ExternalPr
             bufferable: true,
         },
         gluon_ipc::ExternalGluonType {
+            name: "Arrays",
+            supported_derives: gluon_ipc::Derives::from_bits_truncate(30u32),
+            proxy: None,
+            bufferable: true,
+        },
+        gluon_ipc::ExternalGluonType {
             name: "TestEnum",
             supported_derives: gluon_ipc::Derives::from_bits_truncate(0u32),
             proxy: Some("proxies::MyTestEnum"),
@@ -399,6 +405,63 @@ impl gluon_ipc::Convertable for TypesTest {
     }
 }
 impl gluon_ipc::Bufferable for TypesTest {}
+///Fixed size arrays, including one of a proxied type
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct Arrays {
+    pub bytes: [u8; 4],
+    pub names: [String; 2],
+    pub colors: [crate::MyColor; 2],
+}
+impl gluon_ipc::Convertable for Arrays {
+    fn write(
+        &self,
+        gluon_data: &mut gluon_ipc::DataBuilder,
+    ) -> Result<(), gluon_ipc::WriteError> {
+        self.bytes.write(gluon_data)?;
+        self.names.write(gluon_data)?;
+        {
+            let __w: [proxied::Color; 2] = self.colors.clone().map(|__v| __v.into());
+            __w.write_owned(gluon_data)?;
+        }
+        Ok(())
+    }
+    fn read(
+        gluon_data: &mut gluon_ipc::DataReader,
+    ) -> Result<Self, gluon_ipc::ReadError> {
+        let bytes = gluon_ipc::Convertable::read(gluon_data)?;
+        let names = gluon_ipc::Convertable::read(gluon_data)?;
+        let colors: [crate::MyColor; 2] = {
+            let __w: [proxied::Color; 2] = gluon_ipc::Convertable::read(gluon_data)?;
+            __w.map(|__v| __v.into())
+        };
+        Ok(Arrays { bytes, names, colors })
+    }
+    fn read_into(
+        &mut self,
+        gluon_data: &mut gluon_ipc::DataReader,
+    ) -> Result<(), gluon_ipc::ReadError> {
+        gluon_ipc::Convertable::read_into(&mut self.bytes, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.names, gluon_data)?;
+        self.colors = {
+            let __w: [proxied::Color; 2] = gluon_ipc::Convertable::read(gluon_data)?;
+            __w.map(|__v| __v.into())
+        };
+        Ok(())
+    }
+    fn write_owned(
+        self,
+        gluon_data: &mut gluon_ipc::DataBuilder,
+    ) -> Result<(), gluon_ipc::WriteError> {
+        self.bytes.write_owned(gluon_data)?;
+        self.names.write_owned(gluon_data)?;
+        {
+            let __w: [proxied::Color; 2] = self.colors.map(|__v| __v.into());
+            __w.write_owned(gluon_data)?;
+        }
+        Ok(())
+    }
+}
+impl gluon_ipc::Bufferable for Arrays {}
 ///Enum with data in its variants, for reading into a variant that's already there
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Shape {
