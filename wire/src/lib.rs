@@ -39,6 +39,7 @@
 //! [`RefExt::local_from_ref`]. It is an ergonomic pairing only — nothing about it reaches
 //! the wire, where a `Ref` is still just a `Ref`.
 
+mod buf;
 mod codegen_info;
 mod data;
 mod liveness;
@@ -51,6 +52,7 @@ pub use strong_ipc::{
 	UCred,
 };
 
+pub use buf::*;
 pub use codegen_info::*;
 pub use data::*;
 pub use liveness::*;

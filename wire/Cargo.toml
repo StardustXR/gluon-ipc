@@ -16,7 +16,7 @@ local-handlers = ["strong-ipc/local-handlers"]
 strong-ipc.workspace = true
 gluon-ipc-derive.workspace = true
 bitflags = "2"
-rustix = { version = "1.1.4", default-features = false, features = ["net"] }
+rustix = { version = "1.1.4", default-features = false, features = ["net", "fs"] }
 thiserror = "2.0.18"
 tokio = { version = "1.53.1", default-features = false, features = [
 	"sync",

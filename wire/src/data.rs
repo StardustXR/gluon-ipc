@@ -226,6 +226,8 @@ pub enum WriteError {
 	DupFd(#[source] std::io::Error),
 	#[error("Descriptors can't be encoded into bare bytes")]
 	DescriptorsInBytes,
+	#[error("Could not make buf: {0}")]
+	Buf(#[from] crate::BufError),
 }
 
 impl DataReader {
@@ -329,4 +331,6 @@ pub enum ReadError {
 	StringNotUtf8(#[from] FromUtf8Error),
 	#[error("Unkown enum variant: {0}")]
 	UnknownEnumVariant(u16),
+	#[error("Bad buf: {0}")]
+	Buf(#[from] crate::BufError),
 }
