@@ -10,36 +10,49 @@ pub const EXTERNAL_PROTOCOL: gluon_ipc::ExternalProtocol = gluon_ipc::ExternalPr
             name: "TestStruct",
             supported_derives: gluon_ipc::Derives::from_bits_truncate(10u32),
             proxy: None,
+            bufferable: false,
         },
         gluon_ipc::ExternalGluonType {
             name: "FdTestStruct",
             supported_derives: gluon_ipc::Derives::from_bits_truncate(0u32),
             proxy: None,
+            bufferable: false,
         },
         gluon_ipc::ExternalGluonType {
             name: "Palette",
             supported_derives: gluon_ipc::Derives::from_bits_truncate(31u32),
             proxy: None,
+            bufferable: true,
         },
         gluon_ipc::ExternalGluonType {
             name: "MaybeColor",
             supported_derives: gluon_ipc::Derives::from_bits_truncate(31u32),
             proxy: None,
+            bufferable: true,
         },
         gluon_ipc::ExternalGluonType {
             name: "TypesTest",
             supported_derives: gluon_ipc::Derives::from_bits_truncate(170u32),
             proxy: None,
+            bufferable: true,
         },
         gluon_ipc::ExternalGluonType {
             name: "TestEnum",
             supported_derives: gluon_ipc::Derives::from_bits_truncate(0u32),
             proxy: Some("proxies::MyTestEnum"),
+            bufferable: false,
         },
         gluon_ipc::ExternalGluonType {
             name: "Color",
             supported_derives: gluon_ipc::Derives::from_bits_truncate(127u32),
             proxy: Some("proxies::MyColor"),
+            bufferable: true,
+        },
+        gluon_ipc::ExternalGluonType {
+            name: "Shape",
+            supported_derives: gluon_ipc::Derives::from_bits_truncate(42u32),
+            proxy: None,
+            bufferable: true,
         },
     ],
 };
@@ -89,6 +102,21 @@ impl gluon_ipc::Convertable for TestStruct {
             position,
         })
     }
+    fn read_into(
+        &mut self,
+        gluon_data: &mut gluon_ipc::DataReader,
+    ) -> Result<(), gluon_ipc::ReadError> {
+        gluon_ipc::Convertable::read_into(&mut self.string, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.id, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.binder_ref, gluon_data)?;
+        self.position = {
+            let __w: super::types::proxied::Vec3 = gluon_ipc::Convertable::read(
+                gluon_data,
+            )?;
+            __w.into()
+        };
+        Ok(())
+    }
     fn write_owned(
         self,
         gluon_data: &mut gluon_ipc::DataBuilder,
@@ -136,6 +164,16 @@ impl gluon_ipc::Convertable for FdTestStruct {
             fds,
         })
     }
+    fn read_into(
+        &mut self,
+        gluon_data: &mut gluon_ipc::DataReader,
+    ) -> Result<(), gluon_ipc::ReadError> {
+        gluon_ipc::Convertable::read_into(&mut self.fd_1, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.fd_2, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.fd_3, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.fds, gluon_data)?;
+        Ok(())
+    }
     fn write_owned(
         self,
         gluon_data: &mut gluon_ipc::DataBuilder,
@@ -181,6 +219,20 @@ impl gluon_ipc::Convertable for Palette {
         };
         Ok(Palette { primary, secondary })
     }
+    fn read_into(
+        &mut self,
+        gluon_data: &mut gluon_ipc::DataReader,
+    ) -> Result<(), gluon_ipc::ReadError> {
+        self.primary = {
+            let __w: proxied::Color = gluon_ipc::Convertable::read(gluon_data)?;
+            __w.into()
+        };
+        self.secondary = {
+            let __w: proxied::Color = gluon_ipc::Convertable::read(gluon_data)?;
+            __w.into()
+        };
+        Ok(())
+    }
     fn write_owned(
         self,
         gluon_data: &mut gluon_ipc::DataBuilder,
@@ -196,6 +248,7 @@ impl gluon_ipc::Convertable for Palette {
         Ok(())
     }
 }
+impl gluon_ipc::Bufferable for Palette {}
 ///Struct with an optional Color — exercises proxy inside Option
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct MaybeColor {
@@ -221,6 +274,16 @@ impl gluon_ipc::Convertable for MaybeColor {
         };
         Ok(MaybeColor { color })
     }
+    fn read_into(
+        &mut self,
+        gluon_data: &mut gluon_ipc::DataReader,
+    ) -> Result<(), gluon_ipc::ReadError> {
+        self.color = {
+            let __w: Option<proxied::Color> = gluon_ipc::Convertable::read(gluon_data)?;
+            __w.map(|__v| __v.into())
+        };
+        Ok(())
+    }
     fn write_owned(
         self,
         gluon_data: &mut gluon_ipc::DataBuilder,
@@ -232,6 +295,7 @@ impl gluon_ipc::Convertable for MaybeColor {
         Ok(())
     }
 }
+impl gluon_ipc::Bufferable for MaybeColor {}
 ///Every primitive once, so each one's codegen gets compiled and round tripped
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub struct TypesTest {
@@ -297,6 +361,24 @@ impl gluon_ipc::Convertable for TypesTest {
             string,
         })
     }
+    fn read_into(
+        &mut self,
+        gluon_data: &mut gluon_ipc::DataReader,
+    ) -> Result<(), gluon_ipc::ReadError> {
+        gluon_ipc::Convertable::read_into(&mut self.flag, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.byte, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.ushort, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.uint, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.ulong, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.sbyte, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.short, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.int, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.long, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.float, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.double, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.string, gluon_data)?;
+        Ok(())
+    }
     fn write_owned(
         self,
         gluon_data: &mut gluon_ipc::DataBuilder,
@@ -316,6 +398,102 @@ impl gluon_ipc::Convertable for TypesTest {
         Ok(())
     }
 }
+impl gluon_ipc::Bufferable for TypesTest {}
+///Enum with data in its variants, for reading into a variant that's already there
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum Shape {
+    Circle { radius: f32 },
+    Named { name: String },
+    Empty,
+}
+impl gluon_ipc::Convertable for Shape {
+    fn write(
+        &self,
+        gluon_data: &mut gluon_ipc::DataBuilder,
+    ) -> Result<(), gluon_ipc::WriteError> {
+        match self {
+            Shape::Circle { radius } => {
+                gluon_data.write_u16(0u16)?;
+                radius.write(gluon_data)?;
+            }
+            Shape::Named { name } => {
+                gluon_data.write_u16(1u16)?;
+                name.write(gluon_data)?;
+            }
+            Shape::Empty => {
+                gluon_data.write_u16(2u16)?;
+            }
+        };
+        Ok(())
+    }
+    fn read(
+        gluon_data: &mut gluon_ipc::DataReader,
+    ) -> Result<Self, gluon_ipc::ReadError> {
+        Ok(
+            match gluon_data.read_u16()? {
+                0u16 => {
+                    let radius = gluon_ipc::Convertable::read(gluon_data)?;
+                    Shape::Circle { radius }
+                }
+                1u16 => {
+                    let name = gluon_ipc::Convertable::read(gluon_data)?;
+                    Shape::Named { name }
+                }
+                2u16 => Shape::Empty,
+                v => return Err(gluon_ipc::ReadError::UnknownEnumVariant(v)),
+            },
+        )
+    }
+    fn read_into(
+        &mut self,
+        gluon_data: &mut gluon_ipc::DataReader,
+    ) -> Result<(), gluon_ipc::ReadError> {
+        match (gluon_data.read_u16()?, self) {
+            (0u16, Shape::Circle { radius }) => {
+                gluon_ipc::Convertable::read_into(radius, gluon_data)?;
+            }
+            (1u16, Shape::Named { name }) => {
+                gluon_ipc::Convertable::read_into(name, gluon_data)?;
+            }
+            (2u16, Shape::Empty {}) => {}
+            (v, s) => {
+                *s = match v {
+                    0u16 => {
+                        let radius = gluon_ipc::Convertable::read(gluon_data)?;
+                        Shape::Circle { radius }
+                    }
+                    1u16 => {
+                        let name = gluon_ipc::Convertable::read(gluon_data)?;
+                        Shape::Named { name }
+                    }
+                    2u16 => Shape::Empty,
+                    v => return Err(gluon_ipc::ReadError::UnknownEnumVariant(v)),
+                };
+            }
+        }
+        Ok(())
+    }
+    fn write_owned(
+        self,
+        gluon_data: &mut gluon_ipc::DataBuilder,
+    ) -> Result<(), gluon_ipc::WriteError> {
+        match self {
+            Shape::Circle { radius } => {
+                gluon_data.write_u16(0u16)?;
+                radius.write_owned(gluon_data)?;
+            }
+            Shape::Named { name } => {
+                gluon_data.write_u16(1u16)?;
+                name.write_owned(gluon_data)?;
+            }
+            Shape::Empty => {
+                gluon_data.write_u16(2u16)?;
+            }
+        };
+        Ok(())
+    }
+}
+impl gluon_ipc::Bufferable for Shape {}
 ///Test interface
 #[derive(Debug, Clone)]
 pub struct Test {
@@ -802,6 +980,37 @@ pub mod proxied {
                 },
             )
         }
+        fn read_into(
+            &mut self,
+            gluon_data: &mut gluon_ipc::DataReader,
+        ) -> Result<(), gluon_ipc::ReadError> {
+            match (gluon_data.read_u16()?, self) {
+                (0u16, TestEnum::TestStruct { test_struct }) => {
+                    gluon_ipc::Convertable::read_into(test_struct, gluon_data)?;
+                }
+                (1u16, TestEnum::Fd { fd }) => {
+                    gluon_ipc::Convertable::read_into(fd, gluon_data)?;
+                }
+                (2u16, TestEnum::EmptyVariant {}) => {}
+                (v, s) => {
+                    *s = match v {
+                        0u16 => {
+                            let test_struct = gluon_ipc::Convertable::read(gluon_data)?;
+                            TestEnum::TestStruct {
+                                test_struct,
+                            }
+                        }
+                        1u16 => {
+                            let fd = gluon_ipc::Convertable::read(gluon_data)?;
+                            TestEnum::Fd { fd }
+                        }
+                        2u16 => TestEnum::EmptyVariant,
+                        v => return Err(gluon_ipc::ReadError::UnknownEnumVariant(v)),
+                    };
+                }
+            }
+            Ok(())
+        }
         fn write_owned(
             self,
             gluon_data: &mut gluon_ipc::DataBuilder,
@@ -859,6 +1068,25 @@ pub mod proxied {
                 },
             )
         }
+        fn read_into(
+            &mut self,
+            gluon_data: &mut gluon_ipc::DataReader,
+        ) -> Result<(), gluon_ipc::ReadError> {
+            match (gluon_data.read_u16()?, self) {
+                (0u16, Color::Red {}) => {}
+                (1u16, Color::Green {}) => {}
+                (2u16, Color::Blue {}) => {}
+                (v, s) => {
+                    *s = match v {
+                        0u16 => Color::Red,
+                        1u16 => Color::Green,
+                        2u16 => Color::Blue,
+                        v => return Err(gluon_ipc::ReadError::UnknownEnumVariant(v)),
+                    };
+                }
+            }
+            Ok(())
+        }
         fn write_owned(
             self,
             gluon_data: &mut gluon_ipc::DataBuilder,
@@ -877,4 +1105,5 @@ pub mod proxied {
             Ok(())
         }
     }
+    impl gluon_ipc::Bufferable for Color {}
 }

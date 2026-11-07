@@ -491,4 +491,71 @@ mod tests {
 			gluon_ipc::DataReader::from_wire(m.data(), gluon_ipc::FdVec::new()).unwrap();
 		assert_eq!(protocol::test::TypesTest::read(&mut r).unwrap(), v);
 	}
+
+	fn read_over<T: gluon_ipc::Convertable>(out: &mut T, v: &T) {
+		let mut b = gluon_ipc::DataBuilder::bare();
+		v.write(&mut b).unwrap();
+		let mut r = gluon_ipc::DataReader::from_bytes(b.into_bytes().unwrap());
+		out.read_into(&mut r).unwrap();
+	}
+
+	#[test]
+	fn generated_read_into() {
+		use protocol::test::{Palette, Shape};
+		let mut shape = Shape::Named { name: "abc".into() };
+		let Shape::Named { name } = &shape else {
+			unreachable!()
+		};
+		let ptr = name.as_ptr();
+		read_over(&mut shape, &Shape::Named { name: "xyz".into() });
+		let Shape::Named { name } = &shape else {
+			unreachable!()
+		};
+		assert_eq!((name.as_str(), name.as_ptr()), ("xyz", ptr));
+
+		read_over(&mut shape, &Shape::Circle { radius: 2.0 });
+		assert_eq!(shape, Shape::Circle { radius: 2.0 });
+		read_over(&mut shape, &Shape::Empty);
+		assert_eq!(shape, Shape::Empty);
+
+		let mut palette = Palette {
+			primary: MyColor::Red,
+			secondary: MyColor::Red,
+		};
+		let v = Palette {
+			primary: MyColor::Green,
+			secondary: MyColor::Blue,
+		};
+		read_over(&mut palette, &v);
+		assert_eq!(palette, v);
+	}
+
+	#[test]
+	fn generated_bufferable() {
+		use protocol::test::{EXTERNAL_PROTOCOL, Palette, Shape};
+		let buf = gluon_ipc::Buf::new(&vec![Shape::Named { name: "hi".into() }; 2000]).unwrap();
+		assert!(buf.len() > gluon_ipc::MAX_MESSAGE_SIZE as u64);
+		assert_eq!(
+			buf.decode().unwrap(),
+			vec![Shape::Named { name: "hi".into() }; 2000]
+		);
+		let v = Palette {
+			primary: MyColor::Green,
+			secondary: MyColor::Blue,
+		};
+		assert_eq!(gluon_ipc::Buf::new(&v).unwrap().decode().unwrap(), v);
+
+		let bufferable = |n: &str| {
+			EXTERNAL_PROTOCOL
+				.types
+				.iter()
+				.find(|t| t.name == n)
+				.unwrap()
+				.bufferable
+		};
+		assert!(bufferable("Palette") && bufferable("Shape") && bufferable("Color"));
+		assert!(
+			!bufferable("TestStruct") && !bufferable("FdTestStruct") && !bufferable("TestEnum")
+		);
+	}
 }

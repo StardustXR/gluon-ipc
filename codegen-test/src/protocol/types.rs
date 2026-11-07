@@ -10,6 +10,7 @@ pub const EXTERNAL_PROTOCOL: gluon_ipc::ExternalProtocol = gluon_ipc::ExternalPr
             name: "Vec3",
             supported_derives: gluon_ipc::Derives::from_bits_truncate(171u32),
             proxy: Some("proxies::MyVec3"),
+            bufferable: true,
         },
     ],
 };
@@ -44,6 +45,15 @@ pub mod proxied {
             let z = gluon_ipc::Convertable::read(gluon_data)?;
             Ok(Vec3 { x, y, z })
         }
+        fn read_into(
+            &mut self,
+            gluon_data: &mut gluon_ipc::DataReader,
+        ) -> Result<(), gluon_ipc::ReadError> {
+            gluon_ipc::Convertable::read_into(&mut self.x, gluon_data)?;
+            gluon_ipc::Convertable::read_into(&mut self.y, gluon_data)?;
+            gluon_ipc::Convertable::read_into(&mut self.z, gluon_data)?;
+            Ok(())
+        }
         fn write_owned(
             self,
             gluon_data: &mut gluon_ipc::DataBuilder,
@@ -54,4 +64,5 @@ pub mod proxied {
             Ok(())
         }
     }
+    impl gluon_ipc::Bufferable for Vec3 {}
 }

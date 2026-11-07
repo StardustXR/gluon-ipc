@@ -75,3 +75,14 @@ struct TypesTest {
 	double: f64,
 	string: String,
 }
+
+/// Enum with data in its variants, for reading into a variant that's already there
+enum Shape {
+	Circle {
+		radius: f32,
+	},
+	Named {
+		name: String,
+	},
+	Empty,
+}
