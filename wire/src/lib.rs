@@ -38,6 +38,55 @@
 //! [`RefExt::new_service`], and recovered from a ref that comes back in by
 //! [`RefExt::local_from_ref`]. It is an ergonomic pairing only — nothing about it reaches
 //! the wire, where a `Ref` is still just a `Ref`.
+//!
+//! # Bufs
+//!
+//! A message tops out at [`MAX_MESSAGE_SIZE`], so anything bigger goes in a [`Buf`]: a
+//! regular file sent by fd along with how many bytes of it count. A plain `Buf` is raw
+//! bytes, a `Buf<T>` holds a `T` encoded the same way a message payload is.
+//!
+//! ```text
+//!   interface Canvas {
+//!       set_lines(lines: Buf<Vec<Line>>) -> ()
+//!       set_keymap(keymap: Buf) -> ()
+//!   }
+//! ```
+//!
+//! On the wire it's a `u64` length in the bytes and the fd in the descriptors. Receiving
+//! one checks the fd is a regular file, open for reading, and at least that long, so a
+//! pipe or a socket can't sneak in. Any such file works, a memfd from [`Buf::new`], a file
+//! on disk, or whatever [`Buf::from_fd`] is handed.
+//!
+//! The contents have to be [`Bufferable`], meaning no fds or refs anywhere inside, since
+//! those only exist alongside the message that carried them. Codegen works that out from
+//! the protocol and refuses a `Buf<T>` that breaks it.
+//!
+//! Nothing is sealed, so the sender can rewrite or truncate the file whenever it likes.
+//! Reads go through `pread` rather than mmap, so that can only ever give you garbage or a
+//! [`BufError::TooShort`], never a crash. The length is the sender's claim and the file can
+//! be huge and sparse, so look at [`Buf::len`] before decoding one from a peer you don't
+//! trust.
+//!
+//! ## Live bufs and the lease
+//!
+//! [`BufWriter`] keeps one memfd and rewrites it on every [`BufWriter::set`]. Share it
+//! once, and after that a peer only needs the new length for [`Buf::set_len`], or a fresh
+//! [`BufWriter::share`] if that's simpler. [`Buf::decode_into`] on the other end reuses
+//! the old value's allocations, so a buf updated every frame stops allocating.
+//!
+//! The catch is that a write and a read can overlap and tear. The fix is a lease: a
+//! method taking a buf you'll rewrite returns `()` instead of being oneway, the handler
+//! decodes before it returns, and the sender waits for that reply before the next `set`.
+//! The reply then means "done reading", and no locking is needed.
+//!
+//! ```ignore
+//! let mut w = BufWriter::new()?;
+//! w.set(&lines)?;
+//! canvas.set_lines(w.share()?).await?;
+//! // the handler has decoded it once the reply arrives, so rewriting is safe now
+//! w.set(&more_lines)?;
+//! canvas.set_lines(w.share()?).await?;
+//! ```
 
 mod buf;
 mod codegen_info;
