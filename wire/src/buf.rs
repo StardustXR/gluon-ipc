@@ -140,6 +140,63 @@ impl<T: 'static> Convertable for Buf<T> {
 	}
 }
 
+/// the sender's side of a buf you keep rewriting, one memfd reused for every update
+///
+/// whoever you share it with gets a writable fd since memfds can't be handed out read only,
+/// so a peer could scribble over what other peers read
+pub struct BufWriter<T = Raw> {
+	file: File,
+	len: u64,
+	scratch: Vec<u8>,
+	_t: PhantomData<fn() -> T>,
+}
+impl<T> BufWriter<T> {
+	pub fn new() -> Result<Self, BufError> {
+		Ok(Self {
+			file: memfd(&[])?,
+			len: 0,
+			scratch: Vec::new(),
+			_t: PhantomData,
+		})
+	}
+	pub fn len(&self) -> u64 {
+		self.len
+	}
+	pub fn is_empty(&self) -> bool {
+		self.len == 0
+	}
+	/// a new fd to the same file, peers that already have one only need the new [`BufWriter::len`]
+	/// and [`Buf::set_len`]
+	pub fn share(&self) -> Result<Buf<T>, BufError> {
+		Ok(Buf {
+			file: self.file.try_clone()?,
+			len: self.len,
+			_t: PhantomData,
+		})
+	}
+	fn replace(&mut self, bytes: &[u8]) -> Result<(), BufError> {
+		self.file.write_all_at(bytes, 0)?;
+		self.file.set_len(bytes.len() as u64)?;
+		self.len = bytes.len() as u64;
+		Ok(())
+	}
+}
+impl BufWriter<Raw> {
+	pub fn set_bytes(&mut self, bytes: &[u8]) -> Result<(), BufError> {
+		self.replace(bytes)
+	}
+}
+impl<T: Bufferable> BufWriter<T> {
+	pub fn set(&mut self, value: &T) -> Result<(), WriteError> {
+		let mut data = DataBuilder::bare_in(std::mem::take(&mut self.scratch));
+		value.write(&mut data)?;
+		let bytes = data.into_bytes()?;
+		let res = self.replace(&bytes);
+		self.scratch = bytes;
+		Ok(res?)
+	}
+}
+
 fn check(file: &File, len: u64) -> Result<(), BufError> {
 	let stat = fstat(file)?;
 	if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile {
@@ -284,6 +341,44 @@ mod tests {
 		got.set_len(7).unwrap();
 		assert_eq!(got.bytes().unwrap(), b"abcdefg");
 		assert!(matches!(got.set_len(8), Err(BufError::TooShort)));
+	}
+
+	#[test]
+	fn writer_grows_and_shrinks() {
+		let mut w = BufWriter::new().unwrap();
+		w.set(&vec![String::from("a"); 3]).unwrap();
+		let mut got = send(&w.share().unwrap()).unwrap();
+		assert_eq!(got.decode().unwrap(), vec![String::from("a"); 3]);
+
+		w.set(&vec![String::from("big"); 5000]).unwrap();
+		got.set_len(w.len()).unwrap();
+		assert_eq!(got.decode().unwrap(), vec![String::from("big"); 5000]);
+
+		w.set(&vec![]).unwrap();
+		assert_eq!(fstat(&w.file).unwrap().st_size as u64, w.len());
+		got.set_len(w.len()).unwrap();
+		assert_eq!(got.decode().unwrap(), Vec::<String>::new());
+		assert_eq!(
+			send(&w.share().unwrap()).unwrap().decode().unwrap(),
+			Vec::<String>::new()
+		);
+	}
+
+	#[test]
+	fn writer_reuses_scratch() {
+		let mut w = BufWriter::new().unwrap();
+		w.set(&vec![1u64; 100]).unwrap();
+		let ptr = w.scratch.as_ptr();
+		w.set(&vec![2u64; 50]).unwrap();
+		assert_eq!(w.scratch.as_ptr(), ptr);
+	}
+
+	#[test]
+	fn writer_raw() {
+		let mut w = BufWriter::new().unwrap();
+		w.set_bytes(b"hello world").unwrap();
+		w.set_bytes(b"bye").unwrap();
+		assert_eq!(w.share().unwrap().bytes().unwrap(), b"bye");
 	}
 
 	#[test]
