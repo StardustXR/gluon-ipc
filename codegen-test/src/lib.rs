@@ -120,6 +120,14 @@ impl TestHandler for TestHandlerImpl {
 			z: 3.0,
 		}
 	}
+
+	async fn count_shapes(
+		&self,
+		_ctx: Context,
+		shapes: gluon_ipc::Buf<Vec<protocol::test::Shape>>,
+	) -> u32 {
+		shapes.decode().map_or(0, |v| v.len() as u32)
+	}
 }
 
 /// A second handler for the same interface, so a test can ask a proxy for the *wrong*
@@ -152,6 +160,13 @@ impl TestHandler for SecondTestHandler {
 			y: 0.0,
 			z: 0.0,
 		}
+	}
+	async fn count_shapes(
+		&self,
+		_ctx: Context,
+		_shapes: gluon_ipc::Buf<Vec<protocol::test::Shape>>,
+	) -> u32 {
+		0
 	}
 }
 
@@ -347,6 +362,40 @@ mod tests {
 			echoed.0,
 			protocol::test::proxied::TestEnum::EmptyVariant
 		));
+	}
+
+	#[tokio::test]
+	async fn buf_param_goes_over_the_socket() {
+		let (_node, local) = test_node();
+		let shapes = vec![protocol::test::Shape::Circle { radius: 1.0 }; 3000];
+		let buf = gluon_ipc::Buf::new(&shapes).unwrap();
+		assert!(buf.len() > gluon_ipc::MAX_MESSAGE_SIZE as u64);
+		assert_eq!(local.proxy().count_shapes(buf).await.unwrap(), 3000);
+	}
+
+	#[test]
+	fn buf_fields_round_trip() {
+		use gluon_ipc::{Buf, Convertable};
+		use protocol::test::{BufTest, Shape, proxied::Color};
+		use std::os::fd::AsFd;
+		let v = BufTest {
+			raw: Buf::from_bytes(b"raw").unwrap(),
+			shapes: Buf::new(&vec![Shape::Empty]).unwrap(),
+			colors: Buf::new(&vec![Color::Red, Color::Blue]).unwrap(),
+			maybe: None,
+		};
+		let mut b = gluon_ipc::DataBuilder::new();
+		v.write(&mut b).unwrap();
+		let fds: gluon_ipc::FdVec = [v.raw.as_fd(), v.shapes.as_fd(), v.colors.as_fd()]
+			.into_iter()
+			.map(|f| f.try_clone_to_owned().unwrap())
+			.collect();
+		let (_, mut r) = gluon_ipc::DataReader::from_wire(b.finish(0).data(), fds).unwrap();
+		let got = BufTest::read(&mut r).unwrap();
+		assert_eq!(got.raw.bytes().unwrap(), b"raw");
+		assert_eq!(got.shapes.decode().unwrap(), vec![Shape::Empty]);
+		assert_eq!(got.colors.decode().unwrap(), vec![Color::Red, Color::Blue]);
+		assert!(got.maybe.is_none());
 	}
 
 	/// A ref sent out and echoed back arrives as a descriptor for the same socket, and

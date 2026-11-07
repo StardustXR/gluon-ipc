@@ -868,7 +868,7 @@ fn type_contains_inline(
 		| Type::String
 		| Type::Fd => false,
 		// heap-allocated or pointer — break any recursion cycle
-		Type::Vec(_) | Type::Set(_) | Type::Map(_, _) | Type::Ref(_) => false,
+		Type::Vec(_) | Type::Set(_) | Type::Map(_, _) | Type::Ref(_) | Type::Buf(_) => false,
 		// inline wrappers — propagate
 		Type::Option(inner) | Type::Array(inner, _) => {
 			type_contains_inline(inner, target, gen_ctx, visiting)
@@ -924,7 +924,7 @@ fn named_is_bufferable(name: &str, gen_ctx: &GenCtx) -> bool {
 
 fn type_bufferable_inner(ty: &Type, gen_ctx: &GenCtx, visiting: &mut HashSet<String>) -> bool {
 	match ty {
-		Type::Fd | Type::Ref(_) => false,
+		Type::Fd | Type::Ref(_) | Type::Buf(_) => false,
 		Type::Custom(CustomType::Named(name)) => named_bufferable_inner(name, gen_ctx, visiting),
 		Type::Custom(CustomType::Qualified(namespace, type_name)) => {
 			let import = gen_ctx
@@ -1414,6 +1414,15 @@ pub fn gen_type(def: &Type, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 		Type::F64 => quote! {f64},
 		Type::String => quote! {String},
 		Type::Fd => quote! {std::os::fd::OwnedFd},
+		Type::Buf(None) => quote! {gluon_ipc::Buf},
+		// always the wire type, a proxy is only a convenience for values you hold
+		Type::Buf(Some(inner)) => {
+			if !type_bufferable_inner(inner, gen_ctx, &mut HashSet::new()) {
+				panic!("Buf<{inner:?}> can't hold anything with an Fd or Ref in it");
+			}
+			let inner = gen_type(inner, gen_ctx);
+			quote! {gluon_ipc::Buf<#inner>}
+		}
 		Type::Ref(ref_type) => match ref_type {
 			Some(custom) => gen_custom_type(custom, gen_ctx),
 			None => quote! {gluon_ipc::Ref},
@@ -1500,7 +1509,7 @@ fn supported_derives_inner(
 					| Derives::SERDE)
 		}
 		// OwnedFd doesn't implement any derivable traits (other than Debug)
-		Type::Fd => Derives::empty(),
+		Type::Fd | Type::Buf(_) => Derives::empty(),
 		Type::Ref(_) => {
 			requested & (Derives::CLONE | Derives::PARTIAL_EQ | Derives::EQ | Derives::HASH)
 		}
@@ -1680,6 +1689,29 @@ mod tests {
 			protocol,
 		};
 		(local, Derives::empty())
+	}
+
+	#[test]
+	#[should_panic(expected = "can't hold anything with an Fd or Ref")]
+	fn buf_of_descriptors_is_refused() {
+		let (local, derives) = make_ctx(
+			parse_idl(
+				"test",
+				r#"
+                /// Holds an fd
+                struct Holder {
+                    fd: Fd,
+                }
+
+                /// A buf of something that can't go in one
+                struct Bad {
+                    held: Buf<Vec<Holder>>,
+                }
+            "#,
+			)
+			.unwrap(),
+		);
+		gen_module(&local, &[], &[], derives, &[], false);
 	}
 
 	#[test]

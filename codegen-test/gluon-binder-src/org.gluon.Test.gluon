@@ -13,6 +13,8 @@ interface Test {
 	echo_untyped_ref(input: Ref) -> (output: Ref)
 
 	get_position() -> (position: types::Vec3)
+
+	count_shapes(shapes: Buf<Vec<Shape>>) -> (count: u32)
 }
 
 /// test struct
@@ -92,4 +94,12 @@ struct Arrays {
 	bytes: [u8; 4],
 	names: [String; 2],
 	colors: [Color; 2],
+}
+
+/// Every kind of buf, the proxied one holds the wire Color
+struct BufTest {
+	raw: Buf,
+	shapes: Buf<Vec<Shape>>,
+	colors: Buf<Vec<Color>>,
+	maybe: Option<Buf>,
 }

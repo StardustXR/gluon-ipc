@@ -83,6 +83,7 @@ pub enum Type {
 	String,
 	Fd,
 	Ref(Option<CustomType>), // binder object reference, optionally typed
+	Buf(Option<Box<Type>>),  // sized file by fd, raw bytes or an encoded value
 	Custom(CustomType),      // reference to a struct, enum, or imported type by name
 	Array(Box<Type>, u32),
 	Vec(Box<Type>),
@@ -404,6 +405,14 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Protocol, extra::Err<Rich<
 				.then(text::int(10).map(|s: &str| s.parse::<u32>().unwrap()))
 				.map(|(t, n): (Type, u32)| Type::Array(Box::new(t), n))
 				.delimited_by(just('['), just(']')),
+			keyword("Buf")
+				.ignore_then(
+					p.clone()
+						.map(Box::new)
+						.delimited_by(just('<'), just('>'))
+						.or_not(),
+				)
+				.map(Type::Buf),
 			keyword("Ref")
 				.then(
 					text::ident()
@@ -1679,6 +1688,36 @@ fn test_parse_builtin_prefixed_names() {
 	assert_eq!(
 		s.fields[7].ty,
 		Type::Ref(Some(CustomType::Named("Reference".into())))
+	);
+}
+
+#[test]
+fn test_parse_buf() {
+	let input = r#"
+        /// Bufs
+        struct Bufs {
+            raw: Buf,
+            lines: Buf<Vec<types::Line>>,
+            nested: Option<Buf<u8>>,
+            prefixed: Buffer,
+        }
+    "#;
+	let protocol = parse_idl("Test", input).unwrap();
+	let s = &protocol.structs[0].1;
+	assert_eq!(s.fields[0].ty, Type::Buf(None));
+	assert_eq!(
+		s.fields[1].ty,
+		Type::Buf(Some(Box::new(Type::Vec(Box::new(Type::Custom(
+			CustomType::Qualified("types".into(), "Line".into())
+		))))))
+	);
+	assert_eq!(
+		s.fields[2].ty,
+		Type::Option(Box::new(Type::Buf(Some(Box::new(Type::U8)))))
+	);
+	assert_eq!(
+		s.fields[3].ty,
+		Type::Custom(CustomType::Named("Buffer".into()))
 	);
 }
 

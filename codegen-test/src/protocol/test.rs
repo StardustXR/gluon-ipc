@@ -43,6 +43,12 @@ pub const EXTERNAL_PROTOCOL: gluon_ipc::ExternalProtocol = gluon_ipc::ExternalPr
             bufferable: true,
         },
         gluon_ipc::ExternalGluonType {
+            name: "BufTest",
+            supported_derives: gluon_ipc::Derives::from_bits_truncate(0u32),
+            proxy: None,
+            bufferable: false,
+        },
+        gluon_ipc::ExternalGluonType {
             name: "TestEnum",
             supported_derives: gluon_ipc::Derives::from_bits_truncate(0u32),
             proxy: Some("proxies::MyTestEnum"),
@@ -462,6 +468,60 @@ impl gluon_ipc::Convertable for Arrays {
     }
 }
 impl gluon_ipc::Bufferable for Arrays {}
+///Every kind of buf, the proxied one holds the wire Color
+#[derive(Debug)]
+pub struct BufTest {
+    pub raw: gluon_ipc::Buf,
+    pub shapes: gluon_ipc::Buf<Vec<Shape>>,
+    pub colors: gluon_ipc::Buf<Vec<proxied::Color>>,
+    pub maybe: Option<gluon_ipc::Buf>,
+}
+impl gluon_ipc::Convertable for BufTest {
+    fn write(
+        &self,
+        gluon_data: &mut gluon_ipc::DataBuilder,
+    ) -> Result<(), gluon_ipc::WriteError> {
+        self.raw.write(gluon_data)?;
+        self.shapes.write(gluon_data)?;
+        self.colors.write(gluon_data)?;
+        self.maybe.write(gluon_data)?;
+        Ok(())
+    }
+    fn read(
+        gluon_data: &mut gluon_ipc::DataReader,
+    ) -> Result<Self, gluon_ipc::ReadError> {
+        let raw = gluon_ipc::Convertable::read(gluon_data)?;
+        let shapes = gluon_ipc::Convertable::read(gluon_data)?;
+        let colors = gluon_ipc::Convertable::read(gluon_data)?;
+        let maybe = gluon_ipc::Convertable::read(gluon_data)?;
+        Ok(BufTest {
+            raw,
+            shapes,
+            colors,
+            maybe,
+        })
+    }
+    fn read_into(
+        &mut self,
+        gluon_data: &mut gluon_ipc::DataReader,
+    ) -> Result<(), gluon_ipc::ReadError> {
+        gluon_ipc::Convertable::read_into(&mut self.raw, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.shapes, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.colors, gluon_data)?;
+        gluon_ipc::Convertable::read_into(&mut self.maybe, gluon_data)?;
+        Ok(())
+    }
+    fn write_owned(
+        self,
+        gluon_data: &mut gluon_ipc::DataBuilder,
+    ) -> Result<(), gluon_ipc::WriteError> {
+        self.raw.write_owned(gluon_data)?;
+        self.shapes.write_owned(gluon_data)?;
+        self.colors.write_owned(gluon_data)?;
+        self.maybe.write_owned(gluon_data)?;
+        Ok(())
+    }
+}
 ///Enum with data in its variants, for reading into a variant that's already there
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Shape {
@@ -700,6 +760,25 @@ impl Test {
         );
         Ok(__ret_position)
     }
+    pub async fn count_shapes(
+        &self,
+        shapes: impl Into<gluon_ipc::Buf<Vec<Shape>>>,
+    ) -> Result<u32, gluon_ipc::SendError> {
+        let shapes: gluon_ipc::Buf<Vec<Shape>> = shapes.into();
+        tracing::trace!(interface = "Test", method = "count_shapes", ? shapes, "→");
+        let mut gluon_builder = gluon_ipc::DataBuilder::new();
+        let (mut gluon_recv, gluon_ret) = gluon_ipc::ReturnReceiver::new()?;
+        gluon_builder.write_ref(&gluon_ret)?;
+        drop(gluon_ret);
+        shapes.write(&mut gluon_builder)?;
+        gluon_ipc::transact(&self.obj, 14u32, gluon_builder)?;
+        let mut reader = gluon_recv.recv().await?;
+        let __ret_count = gluon_ipc::Convertable::read(&mut reader)?;
+        tracing::trace!(
+            interface = "Test", method = "count_shapes", ? __ret_count, "←"
+        );
+        Ok(__ret_count)
+    }
     ///only use this when you know the ref leads to something implementing this interface, else the consquences are for you to find out
     pub fn from_ref(obj: gluon_ipc::Ref) -> Test {
         Test { obj }
@@ -810,6 +889,23 @@ pub trait TestHandler: gluon_ipc::Handler + Send + Sync + 'static {
         async move {
             let position = self.get_position(_ctx).await;
             reply.send(position)
+        }
+    }
+    fn count_shapes(
+        &self,
+        _ctx: gluon_ipc::Context,
+        shapes: gluon_ipc::Buf<Vec<Shape>>,
+    ) -> impl Future<Output = u32> + Send + Sync;
+    ///Dispatched instead of [`Self::count_shapes`] so a slow reply doesn't hold up dispatch of the next transaction. The default implementation just awaits `count_shapes` and sends the result through `reply`. Override this method instead of `count_shapes` to defer the reply: stash `reply` (it's `Send + Sync + 'static`) somewhere else — a channel, a queue, another task — and return as soon as this method's future is done, without waiting for the reply to actually be sent.
+    fn count_shapes_oneway(
+        &self,
+        _ctx: gluon_ipc::Context,
+        shapes: gluon_ipc::Buf<Vec<Shape>>,
+        reply: gluon_ipc::ReplySender<u32>,
+    ) -> impl Future<Output = Result<(), gluon_ipc::SendError>> + Send + Sync {
+        async move {
+            let count = self.count_shapes(_ctx, shapes).await;
+            reply.send(count)
         }
     }
     fn dispatch_one_way(
@@ -965,6 +1061,33 @@ pub trait TestHandler: gluon_ipc::Handler + Send + Sync + 'static {
                             tracing::trace_span!(
                                 "dispatching", interface = "Test", method = "get_position",
                                 method_id = 13u32
+                            ),
+                        )
+                        .await?;
+                }
+                14u32 => {
+                    let return_callback = gluon_data.read_ref()?;
+                    let param_shapes = gluon_ipc::Convertable::read(&mut gluon_data)?;
+                    tracing::trace!(
+                        interface = "Test", method = "count_shapes", ? param_shapes,
+                        "dispatching"
+                    );
+                    drop(gluon_data);
+                    let reply: gluon_ipc::ReplySender<u32> = gluon_ipc::ReplySender::new(
+                        return_callback,
+                        |count, gluon_out| {
+                            tracing::trace!(
+                                interface = "Test", method = "count_shapes", ? count, "←"
+                            );
+                            count.write_owned(gluon_out)?;
+                            Ok(())
+                        },
+                    );
+                    self.count_shapes_oneway(ctx, param_shapes, reply)
+                        .instrument(
+                            tracing::trace_span!(
+                                "dispatching", interface = "Test", method = "count_shapes",
+                                method_id = 14u32
                             ),
                         )
                         .await?;

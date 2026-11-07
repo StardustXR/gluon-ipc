@@ -120,6 +120,14 @@ impl<T: Bufferable> Buf<T> {
 		res
 	}
 }
+impl<T> std::fmt::Debug for Buf<T> {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("Buf")
+			.field("fd", &self.file.as_fd())
+			.field("len", &self.len)
+			.finish()
+	}
+}
 impl<T> AsFd for Buf<T> {
 	fn as_fd(&self) -> BorrowedFd<'_> {
 		self.file.as_fd()
