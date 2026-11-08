@@ -4,7 +4,7 @@
 use gluon_ipc::Convertable as _;
 use tracing::Instrument as _;
 pub const EXTERNAL_PROTOCOL: gluon_ipc::ExternalProtocol = gluon_ipc::ExternalProtocol {
-    protocol_name: "org.gluon.Test",
+    protocol_name: "org.stardustxr.gluon.Test",
     types: &[
         gluon_ipc::ExternalGluonType {
             name: "TestStruct",
@@ -643,7 +643,7 @@ impl gluon_ipc::Convertable for Test {
     }
 }
 impl Test {
-    const ID: &'static str = "org.gluon.Test.Test";
+    const ID: &'static str = "org.stardustxr.gluon.Test.Test";
 }
 impl gluon_ipc::Interface for Test {
     const ID: &'static str = Self::ID;

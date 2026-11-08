@@ -4,7 +4,7 @@
 use gluon_ipc::Convertable as _;
 use tracing::Instrument as _;
 pub const EXTERNAL_PROTOCOL: gluon_ipc::ExternalProtocol = gluon_ipc::ExternalProtocol {
-    protocol_name: "org.gluon.Types",
+    protocol_name: "org.stardustxr.gluon.Types",
     types: &[
         gluon_ipc::ExternalGluonType {
             name: "Vec3",

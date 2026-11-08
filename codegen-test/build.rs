@@ -7,9 +7,9 @@ fn main() {
 		&[
 			(
 				"types",
-				Path::new("./gluon-binder-src/org.gluon.Types.gluon"),
+				Path::new("./gluon/org.stardustxr.gluon.Types.gluon"),
 			),
-			("test", Path::new("./gluon-binder-src/org.gluon.Test.gluon")),
+			("test", Path::new("./gluon/org.stardustxr.gluon.Test.gluon")),
 		],
 		&[],
 		Derives::all() & !Derives::SERDE,

@@ -1,8 +1,7 @@
 use ansi_term::{Color, Style};
 use chumsky::{prelude::*, text::keyword};
-use convert_case::{Case, Casing};
 use std::io::IsTerminal;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportDecl {
@@ -274,18 +273,6 @@ fn rich_to_entry(src: &str, err: &Rich<'_, char>) -> ParseErrorEntry {
 	}
 }
 
-/// Derive the default alias from an import path.
-/// Takes the filename, strips `.gluon`, splits by `.`, and takes the last segment.
-pub fn default_alias(path: &str) -> String {
-	let filename = path.rsplit('/').next().unwrap_or(path);
-	let stem = filename.strip_suffix(".gluon").unwrap_or(filename);
-	stem.rsplit('.')
-		.next()
-		.unwrap_or(stem)
-		.to_string()
-		.to_case(Case::Snake)
-}
-
 pub fn parser<'src>() -> impl Parser<'src, &'src str, Protocol, extra::Err<Rich<'src, char>>> {
 	// --- Whitespace ---
 	// Non-doc line comment: // but not /// (doc comment)
@@ -316,13 +303,9 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Protocol, extra::Err<Rich<
 		.then(
 			keyword("as")
 				.padded_by(ws)
-				.ignore_then(text::ident().map(str::to_string))
-				.or_not(),
+				.ignore_then(text::ident().map(str::to_string)),
 		)
-		.map(|(name, alias_opt): (String, Option<String>)| {
-			let alias = alias_opt.unwrap_or_else(|| default_alias(&name));
-			ImportDecl { name, alias }
-		});
+		.map(|(name, alias)| ImportDecl { name, alias });
 
 	let imports = import_stmt
 		.padded_by(ws)
@@ -1476,67 +1459,13 @@ fn test_error_display() {
 	}
 }
 
-/// Load a `.gluon` protocol file from disk, recursively resolving imports.
-pub fn load_protocol(path: &Path) -> Result<Protocol, LoadError> {
-	let mut seen = std::collections::HashSet::new();
-	let mut cache = std::collections::HashMap::new();
-	load_protocol_inner(path, &mut seen, &mut cache)
-}
-
-fn load_protocol_inner(
-	path: &Path,
-	seen: &mut std::collections::HashSet<PathBuf>,
-	cache: &mut std::collections::HashMap<PathBuf, Protocol>,
-) -> Result<Protocol, LoadError> {
-	let canonical = path.canonicalize().map_err(LoadError::Io)?;
-
-	if let Some(cached) = cache.get(&canonical) {
-		return Ok(cached.clone());
-	}
-
-	if !seen.insert(canonical.clone()) {
-		return Err(LoadError::CyclicImport(canonical));
-	}
-
-	let source = std::fs::read_to_string(&canonical).map_err(LoadError::Io)?;
-	let name = default_alias(canonical.to_str().unwrap_or(""));
-	let protocol = parse_idl(&name, &source).map_err(LoadError::Parse)?;
-
-	// Check for duplicate aliases
-	let mut alias_set = std::collections::HashSet::new();
-	for import in &protocol.imports {
-		if !alias_set.insert(import.alias.clone()) {
-			return Err(LoadError::DuplicateAlias(import.alias.clone()));
-		}
-	}
-
-	// Recursively load imported protocols
-	let parent_dir = canonical.parent().unwrap_or(Path::new("."));
-	for import in &protocol.imports {
-		let import_path = parent_dir.join(&import.name);
-		load_protocol_inner(&import_path, seen, cache)?;
-	}
-
-	seen.remove(&canonical);
-	cache.insert(canonical, protocol.clone());
-	Ok(protocol)
-}
-
 // --- Import system tests ---
-
-#[test]
-fn test_default_alias() {
-	assert_eq!(default_alias("spatial.gluon"), "spatial");
-	assert_eq!(default_alias("org.stardustxr.spatial.gluon"), "spatial");
-	assert_eq!(default_alias("relative/path/types.gluon"), "types");
-	assert_eq!(default_alias("a/b/org.stardustxr.spatial.gluon"), "spatial");
-}
 
 #[test]
 fn test_parse_imports() {
 	let input = r#"
-        import "spatial.gluon"
-        import "other.gluon" as myalias
+        import "org.stardustxr.Spatial" as spatial
+        import "org.stardustxr.gluon.Other" as myalias
 
         /// Test interface
         interface Foo {
@@ -1545,16 +1474,16 @@ fn test_parse_imports() {
     "#;
 	let protocol = parse_idl("Test", input).unwrap();
 	assert_eq!(protocol.imports.len(), 2);
-	assert_eq!(protocol.imports[0].name, "spatial.gluon");
+	assert_eq!(protocol.imports[0].name, "org.stardustxr.Spatial");
 	assert_eq!(protocol.imports[0].alias, "spatial");
-	assert_eq!(protocol.imports[1].name, "other.gluon");
+	assert_eq!(protocol.imports[1].name, "org.stardustxr.gluon.Other");
 	assert_eq!(protocol.imports[1].alias, "myalias");
 }
 
 #[test]
 fn test_parse_qualified_type_in_params() {
 	let input = r#"
-        import "spatial.gluon"
+        import "org.stardustxr.Spatial" as spatial
 
         /// Test interface
         interface Foo {
@@ -1581,7 +1510,7 @@ fn test_parse_qualified_type_in_params() {
 #[test]
 fn test_parse_qualified_type_in_containers() {
 	let input = r#"
-        import "spatial.gluon"
+        import "org.stardustxr.Spatial" as spatial
 
         /// Test interface
         interface Foo {
@@ -1633,9 +1562,24 @@ fn test_parse_qualified_type_in_containers() {
 }
 
 #[test]
+fn test_fail_parse_import_no_alias() {
+	let input = r#"
+        import "org.stardustxr.Spatial"
+
+        /// A transform
+        struct Transform {
+            position: spatial::Vec3,
+            rotation: spatial::Quat,
+        }
+    "#;
+	let protocol = parse_idl("Test", input).inspect_err(|err|println!("err: {err:?}"));
+    assert!(matches!(protocol, Err(_)));
+}
+
+#[test]
 fn test_parse_qualified_type_in_struct() {
 	let input = r#"
-        import "spatial.gluon"
+        import "org.stardustxr.Spatial" as spatial
 
         /// A transform
         struct Transform {
@@ -1724,7 +1668,7 @@ fn test_parse_buf() {
 #[test]
 fn test_parse_qualified_type_in_enum() {
 	let input = r#"
-        import "spatial.gluon"
+        import "org.stardustxr.Spatial" as spatial
 
         /// Hit result
         enum HitResult {
@@ -1745,146 +1689,6 @@ fn test_parse_qualified_type_in_enum() {
 		e.variants[1].fields[0].ty,
 		Type::Custom(CustomType::Qualified("spatial".into(), "Vec3".into()))
 	);
-}
-
-#[test]
-fn test_load_protocol_basic() {
-	use std::io::Write;
-	let dir = tempfile::tempdir().unwrap();
-
-	// Write spatial.gluon
-	let spatial_path = dir.path().join("spatial.gluon");
-	let mut f = std::fs::File::create(&spatial_path).unwrap();
-	write!(
-		f,
-		"/// A 3D vector\nstruct Vec3 {{\n    x: f32,\n    y: f32,\n    z: f32,\n}}\n"
-	)
-	.unwrap();
-
-	// Write main.gluon that imports spatial
-	let main_path = dir.path().join("main.gluon");
-	let mut f = std::fs::File::create(&main_path).unwrap();
-	write!(
-        f,
-        "import \"spatial.gluon\"\n\n/// Main interface\ninterface Main {{\n    move_to(pos: spatial::Vec3)\n}}\n"
-    )
-    .unwrap();
-
-	let protocol = load_protocol(&main_path).unwrap();
-	assert_eq!(protocol.imports.len(), 1);
-	assert_eq!(protocol.imports[0].alias, "spatial");
-
-	let iface = &protocol
-		.interfaces
-		.iter()
-		.find(|(name, _)| name == "Main")
-		.unwrap()
-		.1;
-	assert_eq!(
-		iface.methods[0].params[0].ty,
-		Type::Custom(CustomType::Qualified("spatial".into(), "Vec3".into()))
-	);
-}
-
-#[test]
-fn test_load_protocol_cyclic_import() {
-	use std::io::Write;
-	let dir = tempfile::tempdir().unwrap();
-
-	let a_path = dir.path().join("a.gluon");
-	let b_path = dir.path().join("b.gluon");
-
-	let mut f = std::fs::File::create(&a_path).unwrap();
-	write!(
-		f,
-		"import \"b.gluon\"\n\n/// A\ninterface A {{\n    ping() -> ()\n}}\n"
-	)
-	.unwrap();
-
-	let mut f = std::fs::File::create(&b_path).unwrap();
-	write!(
-		f,
-		"import \"a.gluon\"\n\n/// B\ninterface B {{\n    pong() -> ()\n}}\n"
-	)
-	.unwrap();
-
-	let result = load_protocol(&a_path);
-	assert!(matches!(result, Err(LoadError::CyclicImport(_))));
-}
-
-#[test]
-fn test_load_protocol_file_not_found() {
-	let result = load_protocol(Path::new("/nonexistent/path/test.gluon"));
-	assert!(matches!(result, Err(LoadError::Io(_))));
-}
-
-#[test]
-fn test_load_protocol_duplicate_alias() {
-	use std::io::Write;
-	let dir = tempfile::tempdir().unwrap();
-
-	let types_path = dir.path().join("types.gluon");
-	let mut f = std::fs::File::create(&types_path).unwrap();
-	write!(f, "/// A type\nstruct Foo {{\n    x: u32,\n}}\n").unwrap();
-
-	let other_dir = dir.path().join("sub");
-	std::fs::create_dir(&other_dir).unwrap();
-	let other_types_path = other_dir.join("types.gluon");
-	let mut f = std::fs::File::create(&other_types_path).unwrap();
-	write!(f, "/// Another type\nstruct Bar {{\n    y: u32,\n}}\n").unwrap();
-
-	let main_path = dir.path().join("main.gluon");
-	let mut f = std::fs::File::create(&main_path).unwrap();
-	write!(
-        f,
-        "import \"types.gluon\"\nimport \"sub/types.gluon\"\n\n/// Main\ninterface Main {{\n    ping() -> ()\n}}\n"
-    )
-    .unwrap();
-
-	let result = load_protocol(&main_path);
-	assert!(matches!(result, Err(LoadError::DuplicateAlias(_))));
-}
-
-#[test]
-fn test_load_protocol_diamond_import() {
-	use std::io::Write;
-	let dir = tempfile::tempdir().unwrap();
-
-	// shared.gluon
-	let shared_path = dir.path().join("shared.gluon");
-	let mut f = std::fs::File::create(&shared_path).unwrap();
-	write!(
-		f,
-		"/// Shared type\nstruct Vec3 {{\n    x: f32,\n    y: f32,\n    z: f32,\n}}\n"
-	)
-	.unwrap();
-
-	// a.gluon imports shared
-	let a_path = dir.path().join("a.gluon");
-	let mut f = std::fs::File::create(&a_path).unwrap();
-	write!(
-		f,
-		"import \"shared.gluon\"\n\n/// A\ninterface A {{\n    get_pos() -> (pos: shared::Vec3)\n}}\n"
-	)
-	.unwrap();
-
-	// b.gluon imports shared
-	let b_path = dir.path().join("b.gluon");
-	let mut f = std::fs::File::create(&b_path).unwrap();
-	write!(
-		f,
-		"import \"shared.gluon\"\n\n/// B\ninterface B {{\n    set_pos(pos: shared::Vec3)\n}}\n"
-	)
-	.unwrap();
-
-	// main.gluon imports both a and b
-	let main_path = dir.path().join("main.gluon");
-	let mut f = std::fs::File::create(&main_path).unwrap();
-	write!(
-		f,
-		"import \"a.gluon\"\nimport \"b.gluon\"\n\n/// Main\ninterface Main {{\n    ping() -> ()\n}}\n"
-	)
-	.unwrap();
 }
 
 #[test]
