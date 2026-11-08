@@ -19,7 +19,8 @@ pub enum Raw {}
 
 /// a sized readable file sent by fd, for data that won't fit in a message
 ///
-/// the file isn't sealed, so whoever sent it can still rewrite or truncate it. reads use
+/// the file isn't sealed, so whoever sent it can still rewrite or truncate it. the protocol is
+/// responsible for handling synchronization on writes after the initial share. reads use
 /// `pread` and never trust the length past what the file actually has, so the worst a
 /// peer can do is hand you garbage or a [`BufError::TooShort`]
 pub struct Buf<T = Raw> {
