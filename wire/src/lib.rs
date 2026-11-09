@@ -127,6 +127,11 @@ pub trait Convertable: 'static + Sized {
 		*self = Self::read(data)?;
 		Ok(())
 	}
+
+	/// how many bytes [`Convertable::write`] will add, so space can be set aside before
+	/// encoding instead of growing into it. fds and refs travel beside the bytes and count
+	/// for nothing
+	fn encoded_len(&self) -> usize;
 }
 
 /// plain data that can live in a buf, so nothing that carries an fd or ref since those
@@ -369,6 +374,48 @@ mod tests {
 		let message = builder.finish(0);
 		let (_, reader) = DataReader::from_wire(message.data(), FdVec::new()).unwrap();
 		reader
+	}
+
+	fn assert_len<T: Convertable>(v: &T) {
+		let mut builder = DataBuilder::new();
+		v.write(&mut builder).unwrap();
+		assert_eq!(v.encoded_len(), builder.finish(0).data().len() - 4);
+	}
+
+	#[test]
+	fn encoded_len_matches_encoding() {
+		assert_len(&true);
+		assert_len(&1u8);
+		assert_len(&-1i8);
+		assert_len(&-2i16);
+		assert_len(&-3i32);
+		assert_len(&-4i64);
+		assert_len(&1.5f32);
+		assert_len(&2.5f64);
+		assert_len(&u16::MAX);
+		assert_len(&u32::MAX);
+		assert_len(&u64::MAX);
+		assert_len(&String::from("hello"));
+		assert_len(&String::new());
+		assert_len(&vec![String::from("a"), String::from("bcd")]);
+		assert_len(&Vec::<u64>::new());
+		assert_len(&[String::from("x"), String::from("yz")]);
+		assert_len(&Some(vec![1u32, 2]));
+		assert_len(&None::<String>);
+		assert_len(&Ok::<_, String>(7u16));
+		assert_len(&Err::<u16, _>(String::from("no")));
+		assert_len(&Box::new(String::from("boxed")));
+		assert_len(&std::collections::HashMap::from([(
+			1u8,
+			String::from("one"),
+		)]));
+		assert_len(&std::collections::HashSet::from([
+			String::from("s"),
+			String::from("t"),
+		]));
+		let (r, _w) = std::io::pipe().unwrap();
+		assert_len(&vec![std::os::fd::OwnedFd::from(r)]);
+		assert_len(&Buf::from_bytes(b"abc").unwrap());
 	}
 
 	#[test]

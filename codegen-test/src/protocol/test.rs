@@ -129,6 +129,15 @@ impl gluon_ipc::Convertable for TestStruct {
         };
         Ok(())
     }
+    fn encoded_len(&self) -> usize {
+        0 + gluon_ipc::Convertable::encoded_len(&self.string)
+            + gluon_ipc::Convertable::encoded_len(&self.id)
+            + gluon_ipc::Convertable::encoded_len(&self.binder_ref)
+            + {
+                let __w: super::types::proxied::Vec3 = self.position.clone().into();
+                gluon_ipc::Convertable::encoded_len(&__w)
+            }
+    }
     fn write_owned(
         self,
         gluon_data: &mut gluon_ipc::DataBuilder,
@@ -185,6 +194,12 @@ impl gluon_ipc::Convertable for FdTestStruct {
         gluon_ipc::Convertable::read_into(&mut self.fd_3, gluon_data)?;
         gluon_ipc::Convertable::read_into(&mut self.fds, gluon_data)?;
         Ok(())
+    }
+    fn encoded_len(&self) -> usize {
+        0 + gluon_ipc::Convertable::encoded_len(&self.fd_1)
+            + gluon_ipc::Convertable::encoded_len(&self.fd_2)
+            + gluon_ipc::Convertable::encoded_len(&self.fd_3)
+            + gluon_ipc::Convertable::encoded_len(&self.fds)
     }
     fn write_owned(
         self,
@@ -245,6 +260,17 @@ impl gluon_ipc::Convertable for Palette {
         };
         Ok(())
     }
+    fn encoded_len(&self) -> usize {
+        0
+            + {
+                let __w: proxied::Color = self.primary.clone().into();
+                gluon_ipc::Convertable::encoded_len(&__w)
+            }
+            + {
+                let __w: proxied::Color = self.secondary.clone().into();
+                gluon_ipc::Convertable::encoded_len(&__w)
+            }
+    }
     fn write_owned(
         self,
         gluon_data: &mut gluon_ipc::DataBuilder,
@@ -295,6 +321,16 @@ impl gluon_ipc::Convertable for MaybeColor {
             __w.map(|__v| __v.into())
         };
         Ok(())
+    }
+    fn encoded_len(&self) -> usize {
+        0
+            + {
+                let __w: Option<proxied::Color> = self
+                    .color
+                    .clone()
+                    .map(|__v| __v.into());
+                gluon_ipc::Convertable::encoded_len(&__w)
+            }
     }
     fn write_owned(
         self,
@@ -391,6 +427,20 @@ impl gluon_ipc::Convertable for TypesTest {
         gluon_ipc::Convertable::read_into(&mut self.string, gluon_data)?;
         Ok(())
     }
+    fn encoded_len(&self) -> usize {
+        0 + gluon_ipc::Convertable::encoded_len(&self.flag)
+            + gluon_ipc::Convertable::encoded_len(&self.byte)
+            + gluon_ipc::Convertable::encoded_len(&self.ushort)
+            + gluon_ipc::Convertable::encoded_len(&self.uint)
+            + gluon_ipc::Convertable::encoded_len(&self.ulong)
+            + gluon_ipc::Convertable::encoded_len(&self.sbyte)
+            + gluon_ipc::Convertable::encoded_len(&self.short)
+            + gluon_ipc::Convertable::encoded_len(&self.int)
+            + gluon_ipc::Convertable::encoded_len(&self.long)
+            + gluon_ipc::Convertable::encoded_len(&self.float)
+            + gluon_ipc::Convertable::encoded_len(&self.double)
+            + gluon_ipc::Convertable::encoded_len(&self.string)
+    }
     fn write_owned(
         self,
         gluon_data: &mut gluon_ipc::DataBuilder,
@@ -454,6 +504,14 @@ impl gluon_ipc::Convertable for Arrays {
         };
         Ok(())
     }
+    fn encoded_len(&self) -> usize {
+        0 + gluon_ipc::Convertable::encoded_len(&self.bytes)
+            + gluon_ipc::Convertable::encoded_len(&self.names)
+            + {
+                let __w: [proxied::Color; 2] = self.colors.clone().map(|__v| __v.into());
+                gluon_ipc::Convertable::encoded_len(&__w)
+            }
+    }
     fn write_owned(
         self,
         gluon_data: &mut gluon_ipc::DataBuilder,
@@ -510,6 +568,12 @@ impl gluon_ipc::Convertable for BufTest {
         gluon_ipc::Convertable::read_into(&mut self.colors, gluon_data)?;
         gluon_ipc::Convertable::read_into(&mut self.maybe, gluon_data)?;
         Ok(())
+    }
+    fn encoded_len(&self) -> usize {
+        0 + gluon_ipc::Convertable::encoded_len(&self.raw)
+            + gluon_ipc::Convertable::encoded_len(&self.shapes)
+            + gluon_ipc::Convertable::encoded_len(&self.colors)
+            + gluon_ipc::Convertable::encoded_len(&self.maybe)
     }
     fn write_owned(
         self,
@@ -596,6 +660,17 @@ impl gluon_ipc::Convertable for Shape {
         }
         Ok(())
     }
+    fn encoded_len(&self) -> usize {
+        match self {
+            Shape::Circle { radius } => {
+                size_of::<u16>() + gluon_ipc::Convertable::encoded_len(&(*radius))
+            }
+            Shape::Named { name } => {
+                size_of::<u16>() + gluon_ipc::Convertable::encoded_len(&(*name))
+            }
+            Shape::Empty {} => size_of::<u16>(),
+        }
+    }
     fn write_owned(
         self,
         gluon_data: &mut gluon_ipc::DataBuilder,
@@ -640,6 +715,9 @@ impl gluon_ipc::Convertable for Test {
         gluon_data: &mut gluon_ipc::DataBuilder,
     ) -> Result<(), gluon_ipc::WriteError> {
         self.obj.write_owned(gluon_data)
+    }
+    fn encoded_len(&self) -> usize {
+        0
     }
 }
 impl Test {
@@ -1197,6 +1275,18 @@ pub mod proxied {
             }
             Ok(())
         }
+        fn encoded_len(&self) -> usize {
+            match self {
+                TestEnum::TestStruct { test_struct } => {
+                    size_of::<u16>()
+                        + gluon_ipc::Convertable::encoded_len(&(*test_struct))
+                }
+                TestEnum::Fd { fd } => {
+                    size_of::<u16>() + gluon_ipc::Convertable::encoded_len(&(*fd))
+                }
+                TestEnum::EmptyVariant {} => size_of::<u16>(),
+            }
+        }
         fn write_owned(
             self,
             gluon_data: &mut gluon_ipc::DataBuilder,
@@ -1272,6 +1362,13 @@ pub mod proxied {
                 }
             }
             Ok(())
+        }
+        fn encoded_len(&self) -> usize {
+            match self {
+                Color::Red {} => size_of::<u16>(),
+                Color::Green {} => size_of::<u16>(),
+                Color::Blue {} => size_of::<u16>(),
+            }
         }
         fn write_owned(
             self,

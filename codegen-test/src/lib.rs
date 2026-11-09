@@ -597,6 +597,82 @@ mod tests {
 		assert_eq!(out, v);
 	}
 
+	fn assert_len<T: gluon_ipc::Convertable>(v: &T) {
+		let mut b = gluon_ipc::DataBuilder::new();
+		v.write(&mut b).unwrap();
+		assert_eq!(v.encoded_len(), b.finish(0).data().len() - 4);
+	}
+
+	#[tokio::test]
+	async fn generated_encoded_len() {
+		use protocol::test::{
+			Arrays, BufTest, FdTestStruct, MaybeColor, Palette, Shape, TestStruct, TypesTest,
+			proxied::TestEnum,
+		};
+		let (_node, local) = test_node();
+		let fd = || std::os::fd::OwnedFd::from(std::io::pipe().unwrap().0);
+		let test_struct = || TestStruct {
+			string: "nya~".into(),
+			id: 7,
+			binder_ref: local.clone().into(),
+			position: MyVec3 {
+				x: 1.0,
+				y: 2.0,
+				z: 3.0,
+			},
+		};
+		assert_len(&test_struct());
+		assert_len(&FdTestStruct {
+			fd_1: fd(),
+			fd_2: fd(),
+			fd_3: fd(),
+			fds: vec![fd(), fd()],
+		});
+		assert_len(&TestEnum::TestStruct {
+			test_struct: test_struct(),
+		});
+		assert_len(&TestEnum::Fd { fd: fd() });
+		assert_len(&TestEnum::EmptyVariant);
+		assert_len(&Palette {
+			primary: MyColor::Red,
+			secondary: MyColor::Blue,
+		});
+		assert_len(&MaybeColor {
+			color: Some(MyColor::Green),
+		});
+		assert_len(&MaybeColor { color: None });
+		assert_len(&TypesTest {
+			flag: true,
+			byte: 1,
+			ushort: 2,
+			uint: 3,
+			ulong: 4,
+			sbyte: 5,
+			short: 6,
+			int: 7,
+			long: 8,
+			float: 9.0,
+			double: 10.0,
+			string: "eleven".into(),
+		});
+		assert_len(&vec![
+			Shape::Circle { radius: 1.0 },
+			Shape::Named { name: "hi".into() },
+			Shape::Empty,
+		]);
+		assert_len(&Arrays {
+			bytes: [1, 2, 3, 4],
+			names: ["a".into(), "bc".into()],
+			colors: [MyColor::Red, MyColor::Green],
+		});
+		assert_len(&BufTest {
+			raw: gluon_ipc::Buf::from_bytes(b"raw").unwrap(),
+			shapes: gluon_ipc::Buf::new(&vec![Shape::Empty]).unwrap(),
+			colors: gluon_ipc::Buf::new(&vec![]).unwrap(),
+			maybe: Some(gluon_ipc::Buf::from_bytes(b"").unwrap()),
+		});
+	}
+
 	#[test]
 	fn generated_bufferable() {
 		use protocol::test::{EXTERNAL_PROTOCOL, Palette, Shape};

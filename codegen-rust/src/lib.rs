@@ -773,6 +773,10 @@ pub fn gen_interface(
 				fn write_owned(self, gluon_data: &mut gluon_ipc::DataBuilder) -> Result<(), gluon_ipc::WriteError> {
 					self.obj.write_owned(gluon_data)
 				}
+
+				fn encoded_len(&self) -> usize {
+					0
+				}
 			}
 			impl #name {
 				const ID: &'static str = #interface_id;
@@ -1016,6 +1020,21 @@ fn gen_proxied_read(f: &Field, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 	}
 }
 
+/// a proxied field has to become its wire type before it can be measured, same as writing it
+fn gen_field_len(
+	f: &Field,
+	place: proc_macro2::TokenStream,
+	gen_ctx: &GenCtx,
+) -> proc_macro2::TokenStream {
+	if type_has_proxy(&f.ty, gen_ctx) {
+		let wire_ty = gen_type(&f.ty, gen_ctx);
+		let conv = gen_pub_to_wire(&f.ty, quote! { #place.clone() }, gen_ctx);
+		quote! { { let __w: #wire_ty = #conv; gluon_ipc::Convertable::encoded_len(&__w) } }
+	} else {
+		quote! { gluon_ipc::Convertable::encoded_len(&#place) }
+	}
+}
+
 pub fn gen_struct(def: &StructDef, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 	let fields = def
 		.fields
@@ -1077,6 +1096,10 @@ pub fn gen_struct(def: &StructDef, gen_ctx: &GenCtx) -> proc_macro2::TokenStream
 				quote! { gluon_ipc::Convertable::read_into(&mut self.#fname, gluon_data)?; }
 			}
 		});
+		let lens = def.fields.iter().map(|f| {
+			let fname = format_ident!("{}", f.name.to_case(Case::Snake));
+			gen_field_len(f, quote! { self.#fname }, gen_ctx)
+		});
 		let bufferable = gen_bufferable_impl(&def.name, &name, gen_ctx);
 		quote! {
 			impl gluon_ipc::Convertable for #name {
@@ -1096,6 +1119,10 @@ pub fn gen_struct(def: &StructDef, gen_ctx: &GenCtx) -> proc_macro2::TokenStream
 				fn read_into(&mut self, gluon_data: &mut gluon_ipc::DataReader) -> Result<(), gluon_ipc::ReadError> {
 					#(#read_intos)*
 					Ok(())
+				}
+
+				fn encoded_len(&self) -> usize {
+					0 #(+ #lens)*
 				}
 
 				fn write_owned(self, gluon_data: &mut gluon_ipc::DataBuilder) -> Result<(), gluon_ipc::WriteError> {
@@ -1264,6 +1291,20 @@ pub fn gen_enum(def: &EnumDef, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 				(#i, #enum_name::#name { #(#field_names,)* }) => { #(#field_reads)* },
 			}
 		});
+		let len_variants = def.variants.iter().map(|variant| {
+			let name = format_ident!("{}", variant.name.to_case(Case::Pascal));
+			let field_names = variant
+				.fields
+				.iter()
+				.map(|v| format_ident!("{}", v.name.to_case(Case::Snake)));
+			let lens = variant.fields.iter().map(|f| {
+				let fname = format_ident!("{}", f.name.to_case(Case::Snake));
+				gen_field_len(f, quote! { (*#fname) }, gen_ctx)
+			});
+			quote! {
+				#enum_name::#name { #(#field_names,)* } => size_of::<u16>() #(+ #lens)*,
+			}
+		});
 		let bufferable = gen_bufferable_impl(&def.name, &enum_name, gen_ctx);
 		quote! {
 			impl gluon_ipc::Convertable for #enum_name {
@@ -1293,6 +1334,12 @@ pub fn gen_enum(def: &EnumDef, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 						},
 					}
 					Ok(())
+				}
+
+				fn encoded_len(&self) -> usize {
+					match self {
+						#(#len_variants)*
+					}
 				}
 
 				fn write_owned(self, gluon_data: &mut gluon_ipc::DataBuilder) -> Result<(), gluon_ipc::WriteError> {

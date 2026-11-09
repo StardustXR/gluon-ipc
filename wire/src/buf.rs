@@ -147,6 +147,10 @@ impl<T: 'static> Convertable for Buf<T> {
 		let len = data.read_u64()?;
 		Ok(Self::from_fd(data.read_fd()?, len)?)
 	}
+
+	fn encoded_len(&self) -> usize {
+		size_of::<u64>()
+	}
 }
 
 /// the sender's side of a buf you keep rewriting, one memfd reused for every update

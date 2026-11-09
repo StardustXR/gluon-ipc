@@ -54,6 +54,11 @@ pub mod proxied {
             gluon_ipc::Convertable::read_into(&mut self.z, gluon_data)?;
             Ok(())
         }
+        fn encoded_len(&self) -> usize {
+            0 + gluon_ipc::Convertable::encoded_len(&self.x)
+                + gluon_ipc::Convertable::encoded_len(&self.y)
+                + gluon_ipc::Convertable::encoded_len(&self.z)
+        }
         fn write_owned(
             self,
             gluon_data: &mut gluon_ipc::DataBuilder,

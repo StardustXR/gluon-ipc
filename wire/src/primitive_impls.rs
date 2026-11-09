@@ -21,6 +21,10 @@ impl<T: Convertable> Convertable for Box<T> {
 	fn read_into(&mut self, data: &mut crate::DataReader) -> Result<(), ReadError> {
 		(**self).read_into(data)
 	}
+
+	fn encoded_len(&self) -> usize {
+		(**self).encoded_len()
+	}
 }
 
 impl<T: Convertable, E: Convertable> Convertable for Result<T, E> {
@@ -60,6 +64,13 @@ impl<T: Convertable, E: Convertable> Convertable for Result<T, E> {
 		}
 		Ok(())
 	}
+
+	fn encoded_len(&self) -> usize {
+		1 + match self {
+			Ok(v) => v.encoded_len(),
+			Err(e) => e.encoded_len(),
+		}
+	}
 }
 impl<K: Hash + Eq + Convertable, V: Convertable> Convertable for HashMap<K, V> {
 	fn write(&self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
@@ -97,6 +108,13 @@ impl<K: Hash + Eq + Convertable, V: Convertable> Convertable for HashMap<K, V> {
 		}
 		Ok(())
 	}
+
+	fn encoded_len(&self) -> usize {
+		4 + self
+			.iter()
+			.map(|(k, v)| k.encoded_len() + v.encoded_len())
+			.sum::<usize>()
+	}
 }
 impl<T: Hash + Eq + Convertable> Convertable for HashSet<T> {
 	fn write(&self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
@@ -131,6 +149,10 @@ impl<T: Hash + Eq + Convertable> Convertable for HashSet<T> {
 			self.insert(T::read(data)?);
 		}
 		Ok(())
+	}
+
+	fn encoded_len(&self) -> usize {
+		4 + self.iter().map(T::encoded_len).sum::<usize>()
 	}
 }
 
@@ -171,6 +193,10 @@ impl<T: Convertable> Convertable for Vec<T> {
 		}
 		Ok(())
 	}
+
+	fn encoded_len(&self) -> usize {
+		4 + self.iter().map(T::encoded_len).sum::<usize>()
+	}
 }
 /// no length on the wire, the schema already says how many
 impl<T: Convertable, const N: usize> Convertable for [T; N] {
@@ -202,6 +228,10 @@ impl<T: Convertable, const N: usize> Convertable for [T; N] {
 		}
 		Ok(())
 	}
+
+	fn encoded_len(&self) -> usize {
+		self.iter().map(T::encoded_len).sum()
+	}
 }
 impl<T: Convertable> Convertable for Option<T> {
 	fn write(&self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
@@ -232,6 +262,10 @@ impl<T: Convertable> Convertable for Option<T> {
 		}
 		Ok(())
 	}
+
+	fn encoded_len(&self) -> usize {
+		1 + self.as_ref().map_or(0, T::encoded_len)
+	}
 }
 
 impl Convertable for Ref {
@@ -246,6 +280,10 @@ impl Convertable for Ref {
 	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
 		data.write_ref(&self)
 	}
+
+	fn encoded_len(&self) -> usize {
+		0
+	}
 }
 impl Convertable for OwnedFd {
 	fn write(&self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
@@ -258,6 +296,10 @@ impl Convertable for OwnedFd {
 
 	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
 		data.write_owned_fd(self)
+	}
+
+	fn encoded_len(&self) -> usize {
+		0
 	}
 }
 impl Convertable for String {
@@ -276,6 +318,10 @@ impl Convertable for String {
 	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
 		data.write_str(&self)
 	}
+
+	fn encoded_len(&self) -> usize {
+		4 + self.len()
+	}
 }
 
 impl Convertable for bool {
@@ -288,6 +334,10 @@ impl Convertable for bool {
 	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
 		data.write_bool(self)
 	}
+
+	fn encoded_len(&self) -> usize {
+		size_of::<Self>()
+	}
 }
 impl Convertable for u64 {
 	fn write(&self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
@@ -298,6 +348,10 @@ impl Convertable for u64 {
 	}
 	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
 		data.write_u64(self)
+	}
+
+	fn encoded_len(&self) -> usize {
+		size_of::<Self>()
 	}
 }
 impl Convertable for i64 {
@@ -310,6 +364,10 @@ impl Convertable for i64 {
 	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
 		data.write_i64(self)
 	}
+
+	fn encoded_len(&self) -> usize {
+		size_of::<Self>()
+	}
 }
 impl Convertable for f64 {
 	fn write(&self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
@@ -320,6 +378,10 @@ impl Convertable for f64 {
 	}
 	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
 		data.write_f64(self)
+	}
+
+	fn encoded_len(&self) -> usize {
+		size_of::<Self>()
 	}
 }
 impl Convertable for u32 {
@@ -332,6 +394,10 @@ impl Convertable for u32 {
 	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
 		data.write_u32(self)
 	}
+
+	fn encoded_len(&self) -> usize {
+		size_of::<Self>()
+	}
 }
 impl Convertable for i32 {
 	fn write(&self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
@@ -342,6 +408,10 @@ impl Convertable for i32 {
 	}
 	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
 		data.write_i32(self)
+	}
+
+	fn encoded_len(&self) -> usize {
+		size_of::<Self>()
 	}
 }
 impl Convertable for f32 {
@@ -354,6 +424,10 @@ impl Convertable for f32 {
 	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
 		data.write_f32(self)
 	}
+
+	fn encoded_len(&self) -> usize {
+		size_of::<Self>()
+	}
 }
 impl Convertable for u16 {
 	fn write(&self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
@@ -364,6 +438,10 @@ impl Convertable for u16 {
 	}
 	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
 		data.write_u16(self)
+	}
+
+	fn encoded_len(&self) -> usize {
+		size_of::<Self>()
 	}
 }
 impl Convertable for i16 {
@@ -376,6 +454,10 @@ impl Convertable for i16 {
 	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
 		data.write_i16(self)
 	}
+
+	fn encoded_len(&self) -> usize {
+		size_of::<Self>()
+	}
 }
 impl Convertable for u8 {
 	fn write(&self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
@@ -387,6 +469,10 @@ impl Convertable for u8 {
 	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
 		data.write_u8(self)
 	}
+
+	fn encoded_len(&self) -> usize {
+		size_of::<Self>()
+	}
 }
 impl Convertable for i8 {
 	fn write(&self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
@@ -397,6 +483,10 @@ impl Convertable for i8 {
 	}
 	fn write_owned(self, data: &mut crate::DataBuilder) -> Result<(), WriteError> {
 		data.write_i8(self)
+	}
+
+	fn encoded_len(&self) -> usize {
+		size_of::<Self>()
 	}
 }
 
