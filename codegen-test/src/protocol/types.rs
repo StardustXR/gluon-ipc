@@ -2,6 +2,7 @@
 #![cfg_attr(rustfmt, rustfmt::skip)]
 #![allow(unused, clippy::all, private_bounds, private_interfaces)]
 use gluon_ipc::Convertable as _;
+use gluon_ipc::Sink as _;
 use tracing::Instrument as _;
 pub const EXTERNAL_PROTOCOL: gluon_ipc::ExternalProtocol = gluon_ipc::ExternalProtocol {
     protocol_name: "org.stardustxr.gluon.Types",
@@ -30,7 +31,7 @@ pub mod proxied {
     impl gluon_ipc::Convertable for Vec3 {
         fn write(
             &self,
-            gluon_data: &mut gluon_ipc::DataBuilder,
+            gluon_data: &mut impl gluon_ipc::Sink,
         ) -> Result<(), gluon_ipc::WriteError> {
             self.x.write(gluon_data)?;
             self.y.write(gluon_data)?;
@@ -61,7 +62,7 @@ pub mod proxied {
         }
         fn write_owned(
             self,
-            gluon_data: &mut gluon_ipc::DataBuilder,
+            gluon_data: &mut impl gluon_ipc::Sink,
         ) -> Result<(), gluon_ipc::WriteError> {
             self.x.write_owned(gluon_data)?;
             self.y.write_owned(gluon_data)?;

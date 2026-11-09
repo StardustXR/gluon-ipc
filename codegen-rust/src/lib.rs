@@ -111,6 +111,7 @@ pub fn gen_module(
 		#![cfg_attr(rustfmt, rustfmt::skip)]
 		#![allow(unused, clippy::all, private_bounds, private_interfaces)]
 		use gluon_ipc::Convertable as _;
+		use gluon_ipc::Sink as _;
 		#tracing_instrument
 		#external_proto_const
 		#(#structs)*
@@ -761,7 +762,7 @@ pub fn gen_interface(
 			}
 
 			impl gluon_ipc::Convertable for #name {
-				fn write(&self, gluon_data: &mut gluon_ipc::DataBuilder) -> Result<(), gluon_ipc::WriteError> {
+				fn write(&self, gluon_data: &mut impl gluon_ipc::Sink) -> Result<(), gluon_ipc::WriteError> {
 					self.obj.write(gluon_data)
 				}
 
@@ -770,7 +771,7 @@ pub fn gen_interface(
 					Ok(#name::from_ref(obj))
 				}
 
-				fn write_owned(self, gluon_data: &mut gluon_ipc::DataBuilder) -> Result<(), gluon_ipc::WriteError> {
+				fn write_owned(self, gluon_data: &mut impl gluon_ipc::Sink) -> Result<(), gluon_ipc::WriteError> {
 					self.obj.write_owned(gluon_data)
 				}
 
@@ -1105,7 +1106,7 @@ pub fn gen_struct(def: &StructDef, gen_ctx: &GenCtx) -> proc_macro2::TokenStream
 			impl gluon_ipc::Convertable for #name {
 				fn write(
 					&self,
-					gluon_data: &mut gluon_ipc::DataBuilder,
+					gluon_data: &mut impl gluon_ipc::Sink,
 				) -> Result<(), gluon_ipc::WriteError> {
 					#(#writes)*
 					Ok(())
@@ -1125,7 +1126,7 @@ pub fn gen_struct(def: &StructDef, gen_ctx: &GenCtx) -> proc_macro2::TokenStream
 					0 #(+ #lens)*
 				}
 
-				fn write_owned(self, gluon_data: &mut gluon_ipc::DataBuilder) -> Result<(), gluon_ipc::WriteError> {
+				fn write_owned(self, gluon_data: &mut impl gluon_ipc::Sink) -> Result<(), gluon_ipc::WriteError> {
 					#(#writes_owned)*
 					Ok(())
 				}
@@ -1310,7 +1311,7 @@ pub fn gen_enum(def: &EnumDef, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 			impl gluon_ipc::Convertable for #enum_name {
 				fn write(
 					&self,
-					gluon_data: &mut gluon_ipc::DataBuilder,
+					gluon_data: &mut impl gluon_ipc::Sink,
 				) -> Result<(), gluon_ipc::WriteError> {
 					match self {
 						#(#write_variants)*
@@ -1342,7 +1343,7 @@ pub fn gen_enum(def: &EnumDef, gen_ctx: &GenCtx) -> proc_macro2::TokenStream {
 					}
 				}
 
-				fn write_owned(self, gluon_data: &mut gluon_ipc::DataBuilder) -> Result<(), gluon_ipc::WriteError> {
+				fn write_owned(self, gluon_data: &mut impl gluon_ipc::Sink) -> Result<(), gluon_ipc::WriteError> {
 					match self {
 						#(#write_owned_variants)*
 					};

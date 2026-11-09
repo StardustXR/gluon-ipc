@@ -89,7 +89,7 @@ impl<I: RefExt + HandledBy<H> + std::fmt::Debug, H: Handler> std::fmt::Debug for
 	}
 }
 
-/// So a `LocalRef` goes straight into an untyped-ref parameter or [`DataBuilder::write_ref`].
+/// So a `LocalRef` goes straight into an untyped-ref parameter or [`Sink::write_ref`](crate::Sink::write_ref).
 impl<I: RefExt + HandledBy<H>, H: Handler> ToRef for LocalRef<I, H> {
 	fn to_ref(&self) -> Ref {
 		self.proxy.to_ref()

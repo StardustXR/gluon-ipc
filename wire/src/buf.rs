@@ -1,4 +1,4 @@
-use crate::{Bufferable, Convertable, DataBuilder, DataReader, ReadError, WriteError};
+use crate::{BareBuilder, Bufferable, Convertable, DataReader, ReadError, Sink, WriteError};
 use rustix::{
 	fs::{FileType, MemfdFlags, OFlags, copy_file_range, fcntl_getfl, fstat, memfd_create},
 	io::Errno,
@@ -99,9 +99,9 @@ impl Buf<Raw> {
 }
 impl<T: Bufferable> Buf<T> {
 	pub fn new(value: &T) -> Result<Self, WriteError> {
-		let mut data = DataBuilder::bare();
+		let mut data = BareBuilder::new();
 		value.write(&mut data)?;
-		let bytes = data.into_bytes()?;
+		let bytes = data.into_bytes();
 		Ok(Self {
 			file: memfd(&bytes)?,
 			len: bytes.len() as u64,
@@ -135,11 +135,11 @@ impl<T> AsFd for Buf<T> {
 	}
 }
 impl<T: 'static> Convertable for Buf<T> {
-	fn write(&self, data: &mut DataBuilder) -> Result<(), WriteError> {
+	fn write(&self, data: &mut impl Sink) -> Result<(), WriteError> {
 		data.write_u64(self.len)?;
 		data.write_fd(self.file.as_fd())
 	}
-	fn write_owned(self, data: &mut DataBuilder) -> Result<(), WriteError> {
+	fn write_owned(self, data: &mut impl Sink) -> Result<(), WriteError> {
 		data.write_u64(self.len)?;
 		data.write_owned_fd(self.file.into())
 	}
@@ -201,9 +201,9 @@ impl BufWriter<Raw> {
 }
 impl<T: Bufferable> BufWriter<T> {
 	pub fn set(&mut self, value: &T) -> Result<(), WriteError> {
-		let mut data = DataBuilder::bare_in(std::mem::take(&mut self.scratch));
+		let mut data = BareBuilder::reuse(std::mem::take(&mut self.scratch));
 		value.write(&mut data)?;
-		let bytes = data.into_bytes()?;
+		let bytes = data.into_bytes();
 		let res = self.replace(&bytes);
 		self.scratch = bytes;
 		Ok(res?)
@@ -260,7 +260,7 @@ impl From<Errno> for BufError {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::FdVec;
+	use crate::{DataBuilder, FdVec};
 	use std::fs::OpenOptions;
 
 	fn send<T: 'static>(buf: &Buf<T>) -> Result<Buf<T>, ReadError> {

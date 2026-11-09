@@ -59,39 +59,72 @@ impl DataBuilder {
 		}
 		message
 	}
-
-	/// encodes a value on its own instead of as a message, for bytes that live somewhere other
-	/// than a socket like a buf's file or a log on disk
-	///
-	/// there's no code header, so finish it with [`DataBuilder::into_bytes`], not
-	/// [`DataBuilder::finish`], which would write the code over the first 4 bytes
-	pub fn bare() -> Self {
-		Self::bare_in(Vec::new())
+}
+impl Sink for DataBuilder {
+	fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+		self.data.extend_from_slice(bytes);
+		Ok(())
 	}
-	/// [`DataBuilder::bare`] writing into an old buffer, so encoding the same kind of value
-	/// over and over doesn't allocate every time
-	///
-	/// whatever was in `data` is dropped, only its capacity is kept
-	pub fn bare_in(mut data: Vec<u8>) -> Self {
-		data.clear();
-		Self {
-			data,
-			fds: Vec::new(),
-		}
+	/// Duplicates `fd` — see [`Attachment`]. Prefer [`Sink::write_owned_fd`].
+	fn write_fd(&mut self, fd: BorrowedFd<'_>) -> Result<(), WriteError> {
+		let fd = fd.try_clone_to_owned().map_err(WriteError::DupFd)?;
+		self.fds.push(Attachment::Fd(fd));
+		Ok(())
 	}
-	/// the encoded value, in the same format a message payload uses
-	///
-	/// descriptors only travel alongside a message, never inside its bytes, so a value that
-	/// wrote any can't be represented here and would silently lose them otherwise
-	pub fn into_bytes(self) -> Result<Vec<u8>, WriteError> {
-		match self.fds.is_empty() {
-			true => Ok(self.data),
-			false => Err(WriteError::DescriptorsInBytes),
-		}
+	fn write_owned_fd(&mut self, fd: OwnedFd) -> Result<(), WriteError> {
+		self.fds.push(Attachment::Fd(fd));
+		Ok(())
+	}
+	fn write_ref(&mut self, node_ref: &impl ToRef) -> Result<(), WriteError> {
+		self.fds.push(Attachment::Ref(node_ref.to_ref()));
+		Ok(())
 	}
 }
+
+/// encodes a value on its own instead of as a message, for bytes that live somewhere other
+/// than a socket like a buf's file or a log on disk
+///
+/// descriptors only travel alongside a message, never inside its bytes, so writing one
+/// here is [`WriteError::DescriptorsInBytes`]
+#[derive(Default)]
+pub struct BareBuilder {
+	data: Vec<u8>,
+}
+impl BareBuilder {
+	pub fn new() -> Self {
+		Self::default()
+	}
+	/// writes into an old buffer, so encoding the same kind of value over and over doesn't
+	/// allocate every time
+	///
+	/// whatever was in `data` is dropped, only its capacity is kept
+	pub fn reuse(mut data: Vec<u8>) -> Self {
+		data.clear();
+		Self { data }
+	}
+	/// the encoded value, in the same format a message payload uses
+	pub fn into_bytes(self) -> Vec<u8> {
+		self.data
+	}
+}
+impl Sink for BareBuilder {
+	fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+		self.data.extend_from_slice(bytes);
+		Ok(())
+	}
+	fn write_fd(&mut self, _fd: BorrowedFd<'_>) -> Result<(), WriteError> {
+		Err(WriteError::DescriptorsInBytes)
+	}
+	fn write_owned_fd(&mut self, _fd: OwnedFd) -> Result<(), WriteError> {
+		Err(WriteError::DescriptorsInBytes)
+	}
+	fn write_ref(&mut self, _node_ref: &impl ToRef) -> Result<(), WriteError> {
+		Err(WriteError::DescriptorsInBytes)
+	}
+}
+
 impl DataReader {
-	/// reads back a value encoded by [`DataBuilder::bare`], from wherever those bytes were kept
+	/// reads back a value encoded by a [`BareBuilder`], from wherever those bytes were kept
 	///
 	/// there's no code header to skip and no descriptors, so reading an fd or ref from this
 	/// is [`ReadError::MissingDescriptor`]
@@ -103,7 +136,7 @@ impl DataReader {
 		}
 	}
 	/// hands the buffer back once you're done reading, so the next read or a
-	/// [`DataBuilder::bare_in`] can reuse its allocation
+	/// [`BareBuilder::reuse`] can reuse its allocation
 	pub fn into_bytes(self) -> Vec<u8> {
 		self.data
 	}
@@ -144,76 +177,50 @@ impl DataReader {
 	}
 }
 
-impl DataBuilder {
-	pub fn write_str(&mut self, str: &str) -> Result<(), WriteError> {
-		if str.len() > u32::MAX as usize {
-			return Err(WriteError::StringToLong);
-		}
-		self.write_u32(str.len() as u32)?;
-		self.data.extend_from_slice(str.as_bytes());
-		Ok(())
-	}
-	pub fn write_f64(&mut self, float: f64) -> Result<(), WriteError> {
-		self.data.extend_from_slice(&float.to_le_bytes());
-		Ok(())
-	}
-	pub fn write_f32(&mut self, float: f32) -> Result<(), WriteError> {
-		self.data.extend_from_slice(&float.to_le_bytes());
-		Ok(())
-	}
-	pub fn write_bool(&mut self, bool: bool) -> Result<(), WriteError> {
-		self.write_u8(bool as u8)?;
-		Ok(())
-	}
-	/// Duplicates `fd` — see [`Attachment`]. Prefer [`DataBuilder::write_owned_fd`].
-	pub fn write_fd(&mut self, fd: BorrowedFd<'_>) -> Result<(), WriteError> {
-		let fd = fd.try_clone_to_owned().map_err(WriteError::DupFd)?;
-		self.fds.push(Attachment::Fd(fd));
-		Ok(())
-	}
-	pub fn write_owned_fd(&mut self, fd: OwnedFd) -> Result<(), WriteError> {
-		self.fds.push(Attachment::Fd(fd));
-		Ok(())
-	}
-	pub fn write_ref(&mut self, node_ref: &impl ToRef) -> Result<(), WriteError> {
-		self.fds.push(Attachment::Ref(node_ref.to_ref()));
-		Ok(())
-	}
-}
+/// somewhere a value can be written to, a message, bare bytes, or a buf's file
+pub trait Sink {
+	fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), WriteError>;
+	fn write_fd(&mut self, fd: BorrowedFd<'_>) -> Result<(), WriteError>;
+	fn write_owned_fd(&mut self, fd: OwnedFd) -> Result<(), WriteError>;
+	fn write_ref(&mut self, node_ref: &impl ToRef) -> Result<(), WriteError>;
 
-// the ints
-impl DataBuilder {
-	pub fn write_u64(&mut self, int: u64) -> Result<(), WriteError> {
-		self.data.extend_from_slice(&int.to_le_bytes());
-		Ok(())
+	fn write_str(&mut self, str: &str) -> Result<(), WriteError> {
+		let len = u32::try_from(str.len()).map_err(|_| WriteError::StringToLong)?;
+		self.write_u32(len)?;
+		self.write_bytes(str.as_bytes())
 	}
-	pub fn write_i64(&mut self, int: i64) -> Result<(), WriteError> {
-		self.data.extend_from_slice(&int.to_le_bytes());
-		Ok(())
+	fn write_bool(&mut self, bool: bool) -> Result<(), WriteError> {
+		self.write_u8(bool as u8)
 	}
-	pub fn write_u32(&mut self, int: u32) -> Result<(), WriteError> {
-		self.data.extend_from_slice(&int.to_le_bytes());
-		Ok(())
+	fn write_f64(&mut self, float: f64) -> Result<(), WriteError> {
+		self.write_bytes(&float.to_le_bytes())
 	}
-	pub fn write_i32(&mut self, int: i32) -> Result<(), WriteError> {
-		self.data.extend_from_slice(&int.to_le_bytes());
-		Ok(())
+	fn write_f32(&mut self, float: f32) -> Result<(), WriteError> {
+		self.write_bytes(&float.to_le_bytes())
 	}
-	pub fn write_u16(&mut self, int: u16) -> Result<(), WriteError> {
-		self.data.extend_from_slice(&int.to_le_bytes());
-		Ok(())
+	fn write_u64(&mut self, int: u64) -> Result<(), WriteError> {
+		self.write_bytes(&int.to_le_bytes())
 	}
-	pub fn write_i16(&mut self, int: i16) -> Result<(), WriteError> {
-		self.data.extend_from_slice(&int.to_le_bytes());
-		Ok(())
+	fn write_i64(&mut self, int: i64) -> Result<(), WriteError> {
+		self.write_bytes(&int.to_le_bytes())
 	}
-	pub fn write_u8(&mut self, int: u8) -> Result<(), WriteError> {
-		self.data.extend_from_slice(&int.to_le_bytes());
-		Ok(())
+	fn write_u32(&mut self, int: u32) -> Result<(), WriteError> {
+		self.write_bytes(&int.to_le_bytes())
 	}
-	pub fn write_i8(&mut self, int: i8) -> Result<(), WriteError> {
-		self.data.extend_from_slice(&int.to_le_bytes());
-		Ok(())
+	fn write_i32(&mut self, int: i32) -> Result<(), WriteError> {
+		self.write_bytes(&int.to_le_bytes())
+	}
+	fn write_u16(&mut self, int: u16) -> Result<(), WriteError> {
+		self.write_bytes(&int.to_le_bytes())
+	}
+	fn write_i16(&mut self, int: i16) -> Result<(), WriteError> {
+		self.write_bytes(&int.to_le_bytes())
+	}
+	fn write_u8(&mut self, int: u8) -> Result<(), WriteError> {
+		self.write_bytes(&[int])
+	}
+	fn write_i8(&mut self, int: i8) -> Result<(), WriteError> {
+		self.write_bytes(&int.to_le_bytes())
 	}
 }
 #[derive(Debug, Error)]

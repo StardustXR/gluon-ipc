@@ -114,8 +114,8 @@ use strong_ipc::TrySendError;
 use thiserror::Error;
 
 pub trait Convertable: 'static + Sized {
-	fn write(&self, data: &mut DataBuilder) -> Result<(), WriteError>;
-	fn write_owned(self, data: &mut DataBuilder) -> Result<(), WriteError>;
+	fn write(&self, data: &mut impl Sink) -> Result<(), WriteError>;
+	fn write_owned(self, data: &mut impl Sink) -> Result<(), WriteError>;
 	fn read(data: &mut DataReader) -> Result<Self, ReadError>;
 
 	/// [`Convertable::read`] over a value you already have, reusing whatever it allocated, so
@@ -420,10 +420,10 @@ mod tests {
 
 	#[test]
 	fn bare_bytes_round_trip() {
-		let mut builder = DataBuilder::bare();
+		let mut builder = BareBuilder::new();
 		"hello".to_string().write(&mut builder).unwrap();
 		7u32.write(&mut builder).unwrap();
-		let bytes = builder.into_bytes().unwrap();
+		let bytes = builder.into_bytes();
 		assert_eq!(bytes.len(), 4 + 5 + 4);
 
 		let mut reader = DataReader::from_bytes(bytes);
@@ -442,9 +442,9 @@ mod tests {
 		let bytes = reader.into_bytes();
 		let cap = bytes.capacity();
 
-		let mut builder = DataBuilder::bare_in(bytes);
+		let mut builder = BareBuilder::reuse(bytes);
 		7u64.write(&mut builder).unwrap();
-		let bytes = builder.into_bytes().unwrap();
+		let bytes = builder.into_bytes();
 		assert_eq!(bytes, 7u64.to_le_bytes());
 		assert_eq!(bytes.capacity(), cap);
 	}
@@ -452,18 +452,17 @@ mod tests {
 	#[test]
 	fn descriptors_cant_be_bare() {
 		let (fd, _) = std::io::pipe().unwrap();
-		let mut builder = DataBuilder::bare();
-		builder.write_owned_fd(fd.into()).unwrap();
+		let mut builder = BareBuilder::new();
 		assert!(matches!(
-			builder.into_bytes(),
+			builder.write_owned_fd(fd.into()),
 			Err(WriteError::DescriptorsInBytes)
 		));
 	}
 
 	fn read_over<T: Convertable>(target: &mut T, v: &T) {
-		let mut builder = DataBuilder::bare();
+		let mut builder = BareBuilder::new();
 		v.write(&mut builder).unwrap();
-		let mut reader = DataReader::from_bytes(builder.into_bytes().unwrap());
+		let mut reader = DataReader::from_bytes(builder.into_bytes());
 		target.read_into(&mut reader).unwrap();
 	}
 
@@ -500,9 +499,9 @@ mod tests {
 	#[test]
 	fn arrays_have_no_length() {
 		let v = [String::from("a"), String::from("bc")];
-		let mut builder = DataBuilder::bare();
+		let mut builder = BareBuilder::new();
 		v.write(&mut builder).unwrap();
-		let bytes = builder.into_bytes().unwrap();
+		let bytes = builder.into_bytes();
 		assert_eq!(bytes.len(), 4 + 1 + 4 + 2);
 		let mut reader = DataReader::from_bytes(bytes);
 		assert_eq!(<[String; 2]>::read(&mut reader).unwrap(), v);

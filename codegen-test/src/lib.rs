@@ -542,9 +542,9 @@ mod tests {
 	}
 
 	fn read_over<T: gluon_ipc::Convertable>(out: &mut T, v: &T) {
-		let mut b = gluon_ipc::DataBuilder::bare();
+		let mut b = gluon_ipc::BareBuilder::new();
 		v.write(&mut b).unwrap();
-		let mut r = gluon_ipc::DataReader::from_bytes(b.into_bytes().unwrap());
+		let mut r = gluon_ipc::DataReader::from_bytes(b.into_bytes());
 		out.read_into(&mut r).unwrap();
 	}
 

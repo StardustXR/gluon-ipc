@@ -2,6 +2,7 @@
 #![cfg_attr(rustfmt, rustfmt::skip)]
 #![allow(unused, clippy::all, private_bounds, private_interfaces)]
 use gluon_ipc::Convertable as _;
+use gluon_ipc::Sink as _;
 use tracing::Instrument as _;
 pub const EXTERNAL_PROTOCOL: gluon_ipc::ExternalProtocol = gluon_ipc::ExternalProtocol {
     protocol_name: "org.stardustxr.gluon.Test",
@@ -84,7 +85,7 @@ pub struct TestStruct {
 impl gluon_ipc::Convertable for TestStruct {
     fn write(
         &self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         self.string.write(gluon_data)?;
         self.id.write(gluon_data)?;
@@ -140,7 +141,7 @@ impl gluon_ipc::Convertable for TestStruct {
     }
     fn write_owned(
         self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         self.string.write_owned(gluon_data)?;
         self.id.write_owned(gluon_data)?;
@@ -163,7 +164,7 @@ pub struct FdTestStruct {
 impl gluon_ipc::Convertable for FdTestStruct {
     fn write(
         &self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         self.fd_1.write(gluon_data)?;
         self.fd_2.write(gluon_data)?;
@@ -203,7 +204,7 @@ impl gluon_ipc::Convertable for FdTestStruct {
     }
     fn write_owned(
         self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         self.fd_1.write_owned(gluon_data)?;
         self.fd_2.write_owned(gluon_data)?;
@@ -221,7 +222,7 @@ pub struct Palette {
 impl gluon_ipc::Convertable for Palette {
     fn write(
         &self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         {
             let __w: proxied::Color = self.primary.clone().into();
@@ -273,7 +274,7 @@ impl gluon_ipc::Convertable for Palette {
     }
     fn write_owned(
         self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         {
             let __w: proxied::Color = self.primary.into();
@@ -295,7 +296,7 @@ pub struct MaybeColor {
 impl gluon_ipc::Convertable for MaybeColor {
     fn write(
         &self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         {
             let __w: Option<proxied::Color> = self.color.clone().map(|__v| __v.into());
@@ -334,7 +335,7 @@ impl gluon_ipc::Convertable for MaybeColor {
     }
     fn write_owned(
         self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         {
             let __w: Option<proxied::Color> = self.color.map(|__v| __v.into());
@@ -363,7 +364,7 @@ pub struct TypesTest {
 impl gluon_ipc::Convertable for TypesTest {
     fn write(
         &self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         self.flag.write(gluon_data)?;
         self.byte.write(gluon_data)?;
@@ -443,7 +444,7 @@ impl gluon_ipc::Convertable for TypesTest {
     }
     fn write_owned(
         self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         self.flag.write_owned(gluon_data)?;
         self.byte.write_owned(gluon_data)?;
@@ -471,7 +472,7 @@ pub struct Arrays {
 impl gluon_ipc::Convertable for Arrays {
     fn write(
         &self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         self.bytes.write(gluon_data)?;
         self.names.write(gluon_data)?;
@@ -514,7 +515,7 @@ impl gluon_ipc::Convertable for Arrays {
     }
     fn write_owned(
         self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         self.bytes.write_owned(gluon_data)?;
         self.names.write_owned(gluon_data)?;
@@ -537,7 +538,7 @@ pub struct BufTest {
 impl gluon_ipc::Convertable for BufTest {
     fn write(
         &self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         self.raw.write(gluon_data)?;
         self.shapes.write(gluon_data)?;
@@ -577,7 +578,7 @@ impl gluon_ipc::Convertable for BufTest {
     }
     fn write_owned(
         self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         self.raw.write_owned(gluon_data)?;
         self.shapes.write_owned(gluon_data)?;
@@ -596,7 +597,7 @@ pub enum Shape {
 impl gluon_ipc::Convertable for Shape {
     fn write(
         &self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         match self {
             Shape::Circle { radius } => {
@@ -673,7 +674,7 @@ impl gluon_ipc::Convertable for Shape {
     }
     fn write_owned(
         self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         match self {
             Shape::Circle { radius } => {
@@ -700,7 +701,7 @@ pub struct Test {
 impl gluon_ipc::Convertable for Test {
     fn write(
         &self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         self.obj.write(gluon_data)
     }
@@ -712,7 +713,7 @@ impl gluon_ipc::Convertable for Test {
     }
     fn write_owned(
         self,
-        gluon_data: &mut gluon_ipc::DataBuilder,
+        gluon_data: &mut impl gluon_ipc::Sink,
     ) -> Result<(), gluon_ipc::WriteError> {
         self.obj.write_owned(gluon_data)
     }
@@ -1207,7 +1208,7 @@ pub mod proxied {
     impl gluon_ipc::Convertable for TestEnum {
         fn write(
             &self,
-            gluon_data: &mut gluon_ipc::DataBuilder,
+            gluon_data: &mut impl gluon_ipc::Sink,
         ) -> Result<(), gluon_ipc::WriteError> {
             match self {
                 TestEnum::TestStruct { test_struct } => {
@@ -1289,7 +1290,7 @@ pub mod proxied {
         }
         fn write_owned(
             self,
-            gluon_data: &mut gluon_ipc::DataBuilder,
+            gluon_data: &mut impl gluon_ipc::Sink,
         ) -> Result<(), gluon_ipc::WriteError> {
             match self {
                 TestEnum::TestStruct { test_struct } => {
@@ -1317,7 +1318,7 @@ pub mod proxied {
     impl gluon_ipc::Convertable for Color {
         fn write(
             &self,
-            gluon_data: &mut gluon_ipc::DataBuilder,
+            gluon_data: &mut impl gluon_ipc::Sink,
         ) -> Result<(), gluon_ipc::WriteError> {
             match self {
                 Color::Red => {
@@ -1372,7 +1373,7 @@ pub mod proxied {
         }
         fn write_owned(
             self,
-            gluon_data: &mut gluon_ipc::DataBuilder,
+            gluon_data: &mut impl gluon_ipc::Sink,
         ) -> Result<(), gluon_ipc::WriteError> {
             match self {
                 Color::Red => {
