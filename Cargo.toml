@@ -4,7 +4,7 @@ resolver = "3"
 members = ["codegen-test", "codegen-rust", "parser", "wire", "wire-derive"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 authors = ["Nova King <technobaboo@proton.me>"]
 license = "MIT"
